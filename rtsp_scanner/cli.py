@@ -28,11 +28,11 @@ Examples:
   # Scan single host
   rtsp-network-scanner ports 192.168.1.100
 
-  # Test RTSP URL
-  rtsp-network-scanner test rtsp://192.168.1.100:554/stream
+  # Validate RTSP URL
+  rtsp-network-scanner validate rtsp://192.168.1.100:554/stream
 
-  # Quick channel scan
-  rtsp-network-scanner quick 192.168.1.100
+  # Scan for channels
+  rtsp-network-scanner channels 192.168.1.100
         """
     )
 
@@ -54,22 +54,6 @@ Examples:
     scan_ports.add_argument('host', help='Target host IP or hostname')
     scan_ports.add_argument('--ports', nargs='+', type=int, help='Ports to scan')
 
-    # Scan IP range command  
-    scan_range = subparsers.add_parser('range', help='Scan IP range')
-    scan_range.add_argument('start_ip', help='Starting IP')
-    scan_range.add_argument('end_ip', help='Ending IP')
-    scan_range.add_argument('--ports', nargs='+', type=int, help='Ports to scan')
-
-    # Test URL command
-    test_url = subparsers.add_parser('test', help='Test RTSP URL')
-    test_url.add_argument('url', help='RTSP URL')
-    test_url.add_argument('--username', '-u', help='Username')
-    test_url.add_argument('--password', '-p', help='Password')
-
-    # Validate URL command
-    validate = subparsers.add_parser('validate', help='Validate RTSP URL')
-    validate.add_argument('url', help='RTSP URL')
-
     # Scan channels command
     scan_ch = subparsers.add_parser('channels', help='Scan for channels')
     scan_ch.add_argument('host', help='Target host')
@@ -79,22 +63,9 @@ Examples:
     scan_ch.add_argument('--paths', nargs='+', help='Custom paths')
     scan_ch.add_argument('--with-creds', action='store_true', help='Try common credentials')
 
-    # Quick scan command
-    quick = subparsers.add_parser('quick', help='Quick scan')
-    quick.add_argument('host', help='Target host')
-    quick.add_argument('--port', type=int, default=554, help='Port (default: 554)')
-
-    # Numbered channels command
-    numbered = subparsers.add_parser('numbered', help='Scan numbered channels')
-    numbered.add_argument('host', help='Target host')
-    numbered.add_argument('--port', type=int, default=554, help='Port (default: 554)')
-    numbered.add_argument('--range', type=str, default='1-16', help='Range (default: 1-16)')
-    numbered.add_argument('--username', '-u', help='Username')
-    numbered.add_argument('--password', '-p', help='Password')
-
-    # Test credentials command
-    test_creds = subparsers.add_parser('credentials', help='Test credentials')
-    test_creds.add_argument('url', help='RTSP URL')
+    # Validate URL command
+    validate = subparsers.add_parser('validate', help='Validate RTSP URL')
+    validate.add_argument('url', help='RTSP URL')
 
     args = parser.parse_args()
 
@@ -132,24 +103,6 @@ Examples:
             if results:
                 print(formatter.format_table(results, ['host', 'port', 'status', 'response_time']))
 
-        elif args.command == 'range':
-            scanner = PortScanner(timeout=args.timeout, max_workers=args.workers, logger=logger)
-            results = scanner.scan_ip_range(args.start_ip, args.end_ip, ports=args.ports)
-            print(formatter.format_summary(results, "IP Range Scan"))
-            if results:
-                print(formatter.format_table(results, ['host', 'port', 'status', 'response_time']))
-
-        elif args.command == 'test':
-            tester = RTSPTester(timeout=args.timeout, logger=logger)
-            if args.username and args.password:
-                result = tester.test_rtsp_with_auth(args.url, args.username, args.password)
-            else:
-                result = tester.test_rtsp_connection(args.url)
-
-            results = [result]
-            print(formatter.format_summary(results, "URL Test"))
-            print(formatter.format_json(result, pretty=True))
-
         elif args.command == 'validate':
             tester = RTSPTester(logger=logger)
             is_valid, message = tester.validate_rtsp_url(args.url)
@@ -176,40 +129,6 @@ Examples:
                 if args.with_creds and results and 'username' in results[0]:
                     headers.extend(['username', 'password'])
                 print(formatter.format_table(results, headers))
-
-        elif args.command == 'quick':
-            scanner = ChannelScanner(timeout=args.timeout, max_workers=args.workers, logger=logger)
-            results = scanner.quick_scan(args.host, args.port)
-            print(formatter.format_summary(results, "Quick Scan"))
-            if results:
-                print(formatter.format_table(results, ['path', 'status_code', 'response_time']))
-
-        elif args.command == 'numbered':
-            scanner = ChannelScanner(timeout=args.timeout, max_workers=args.workers, logger=logger)
-
-            # Parse range
-            if '-' in args.range:
-                start, end = map(int, args.range.split('-'))
-                channel_range = range(start, end + 1)
-            else:
-                channel_range = range(1, 17)
-
-            results = scanner.scan_numbered_channels(args.host, args.port, channel_range, args.username, args.password)
-            print(formatter.format_summary(results, "Numbered Scan"))
-            if results:
-                print(formatter.format_table(results, ['path', 'status_code', 'response_time']))
-
-        elif args.command == 'credentials':
-            tester = RTSPTester(timeout=args.timeout, logger=logger)
-            results = tester.test_common_credentials(args.url)
-            print(formatter.format_summary(results, "Credential Test"))
-
-            if results:
-                print("\nWorking credentials:")
-                for item in results:
-                    print(f"  User: {item['username']}, Pass: {item['password']}")
-            else:
-                print("\nNo credentials found")
 
         # Export results
         if args.output and results:
