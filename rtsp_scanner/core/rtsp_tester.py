@@ -35,6 +35,60 @@ class RTSPTester:
         if self.logger:
             getattr(self.logger, level)(message)
 
+    def _parse_sdp(self, sdp_lines: list) -> dict:
+        """
+        Parse SDP data to extract codec and resolution
+
+        Args:
+            sdp_lines: List of SDP lines
+
+        Returns:
+            Dictionary with codec and resolution info
+        """
+        info = {
+            'codec': None,
+            'resolution': None
+        }
+
+        sdp_text = '\n'.join(sdp_lines)
+
+        # Extract video codec from rtpmap
+        # Example: a=rtpmap:96 H264/90000
+        codec_match = re.search(r'a=rtpmap:\d+\s+(\w+)/\d+', sdp_text, re.IGNORECASE)
+        if codec_match:
+            codec = codec_match.group(1).upper()
+            # Normalize codec names
+            if codec in ['H264', 'H.264']:
+                info['codec'] = 'H.264'
+            elif codec in ['H265', 'H.265', 'HEVC']:
+                info['codec'] = 'H.265'
+            elif codec in ['MJPEG', 'JPEG']:
+                info['codec'] = 'MJPEG'
+            elif codec in ['MPEG4']:
+                info['codec'] = 'MPEG4'
+            else:
+                info['codec'] = codec
+
+        # Extract resolution from fmtp or other attributes
+        # Example: a=fmtp:96 ... x-dimensions=1920,1080
+        # or a=framesize:96 1920-1080
+        res_patterns = [
+            r'x-dimensions=(\d+),(\d+)',
+            r'framesize:\d+\s+(\d+)-(\d+)',
+            r'resolution[:\s]+(\d+)x(\d+)',
+            r'width[:\s]*=\s*(\d+).*height[:\s]*=\s*(\d+)'
+        ]
+
+        for pattern in res_patterns:
+            res_match = re.search(pattern, sdp_text, re.IGNORECASE)
+            if res_match:
+                width = res_match.group(1)
+                height = res_match.group(2)
+                info['resolution'] = f"{width}x{height}"
+                break
+
+        return info
+
     def validate_rtsp_url(self, url: str) -> Tuple[bool, str]:
         """
         Validate RTSP URL format
@@ -191,11 +245,21 @@ class RTSPTester:
                     result['reachable'] = True
                     result['response_time'] = response_time
 
-                    # Extract server info
+                    # Extract server info and SDP data
+                    sdp_data = []
+                    in_sdp = False
                     for line in lines:
                         if line.lower().startswith('server:'):
                             result['server_info'] = line.split(':', 1)[1].strip()
-                            break
+                        if line.lower().startswith('content-type:') and 'sdp' in line.lower():
+                            in_sdp = True
+                        elif in_sdp and line.strip():
+                            sdp_data.append(line)
+
+                    # Parse SDP for codec and resolution
+                    if sdp_data and status_code == 200:
+                        codec_info = self._parse_sdp(sdp_data)
+                        result.update(codec_info)
 
                     if status_code == 200:
                         self._log(f"RTSP connection successful: {url}")

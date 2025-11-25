@@ -233,6 +233,8 @@ class ChannelScanner:
                 'status_code': result['status_code'],
                 'response_time': result['response_time'],
                 'stream_type': stream_type,
+                'codec': result.get('codec'),
+                'resolution': result.get('resolution'),
                 'server_info': result.get('server_info'),
                 'requires_auth': result['status_code'] == 401
             }
