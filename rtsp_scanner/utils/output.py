@@ -153,19 +153,18 @@ class OutputFormatter:
         if not results:
             return f"\n{scan_type}: No results found\n"
 
-        summary = [f"\n{scan_type}: Found {len(results)} result(s)"]
-
+        # For port scan, show open ports
         if 'status' in results[0]:
             open_count = sum(1 for r in results if r.get('status') == 'open')
             if open_count > 0:
-                summary[0] = f"\n{scan_type}: Found {open_count} open port(s)"
+                return f"\nFound {open_count} camera(s)\n"
+            else:
+                return f"\nNo cameras found\n"
 
-        if 'status_code' in results[0]:
-            code_200 = sum(1 for r in results if r.get('status_code') == 200)
-            code_401 = sum(1 for r in results if r.get('status_code') == 401)
-            if code_200 > 0:
-                summary.append(f"  ✓ {code_200} accessible (no auth)")
-            if code_401 > 0:
-                summary.append(f"  🔒 {code_401} require credentials")
+        # For channel scan, show unique hosts
+        if 'host' in results[0]:
+            unique_hosts = len(set(r.get('host') for r in results))
+            channel_count = len(results)
+            return f"\nFound {unique_hosts} camera(s) with {channel_count} channel(s)\n"
 
-        return '\n'.join(summary) + '\n'
+        return f"\n{scan_type}: Found {len(results)} result(s)\n"

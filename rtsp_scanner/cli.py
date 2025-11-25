@@ -118,9 +118,10 @@ Examples:
                                 args.password
                             )
 
-                            # Add host info to results
+                            # Add host and port info to results
                             for channel in channels:
                                 channel['host'] = host
+                                channel['port'] = port
                                 all_channels.append(channel)
 
                     # Display channel results
