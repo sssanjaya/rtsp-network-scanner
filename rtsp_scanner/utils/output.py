@@ -141,7 +141,7 @@ class OutputFormatter:
     @staticmethod
     def format_summary(results: List[Dict], scan_type: str = "scan") -> str:
         """
-        Format a summary of scan results
+        Format a simple summary of scan results
 
         Args:
             results: List of result dictionaries
@@ -150,29 +150,22 @@ class OutputFormatter:
         Returns:
             Formatted summary string
         """
-        summary = [
-            f"\n{'=' * 60}",
-            f"  RTSP Scanner - {scan_type.upper()} RESULTS",
-            f"{'=' * 60}",
-            f"Total results: {len(results)}",
-        ]
+        if not results:
+            return f"\n{scan_type}: No results found\n"
 
-        if results:
-            # Group by status or other relevant field
-            if 'status' in results[0]:
-                open_count = sum(1 for r in results if r.get('status') == 'open')
-                summary.append(f"Open ports: {open_count}")
+        summary = [f"\n{scan_type}: Found {len(results)} result(s)"]
 
-            if 'reachable' in results[0]:
-                reachable = sum(1 for r in results if r.get('reachable'))
-                summary.append(f"Reachable: {reachable}")
+        if 'status' in results[0]:
+            open_count = sum(1 for r in results if r.get('status') == 'open')
+            if open_count > 0:
+                summary[0] = f"\n{scan_type}: Found {open_count} open port(s)"
 
-            if 'status_code' in results[0]:
-                code_200 = sum(1 for r in results if r.get('status_code') == 200)
-                code_401 = sum(1 for r in results if r.get('status_code') == 401)
-                summary.append(f"Accessible (200): {code_200}")
-                summary.append(f"Auth required (401): {code_401}")
+        if 'status_code' in results[0]:
+            code_200 = sum(1 for r in results if r.get('status_code') == 200)
+            code_401 = sum(1 for r in results if r.get('status_code') == 401)
+            if code_200 > 0:
+                summary.append(f"  ✓ {code_200} accessible")
+            if code_401 > 0:
+                summary.append(f"  ⚠ {code_401} require auth")
 
-        summary.append('=' * 60 + '\n')
-
-        return '\n'.join(summary)
+        return '\n'.join(summary) + '\n'
