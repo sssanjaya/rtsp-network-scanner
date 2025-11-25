@@ -86,10 +86,10 @@ Examples:
                 port_results = port_scanner.scan_host(target, ports=args.ports)
 
             # Display port scan results
-            print(formatter.format_summary(port_results, "Ports"))
             if port_results:
                 open_results = [r for r in port_results if r.get('status') == 'open']
                 if open_results:
+                    print(formatter.format_summary(open_results, "Ports"))
                     print(formatter.format_table(open_results, ['host', 'port', 'response_time']))
 
             # Step 2: Scan for channels on hosts with open ports
@@ -127,12 +127,7 @@ Examples:
                     # Display channel results
                     if all_channels:
                         print(formatter.format_summary(all_channels, 'Channels'))
-                        # Check if any channel has codec/resolution info
-                        has_codec = any(c.get('codec') for c in all_channels)
-                        if has_codec:
-                            print(formatter.format_table(all_channels, ['host', 'port', 'path', 'stream_type', 'codec', 'resolution', 'response_time']))
-                        else:
-                            print(formatter.format_table(all_channels, ['host', 'port', 'path', 'stream_type', 'response_time']))
+                        print(formatter.format_table(all_channels, ['host', 'port', 'path', 'stream_type', 'codec', 'resolution', 'response_time']))
                         results = all_channels
                     else:
                         logger.info("No accessible channels found")

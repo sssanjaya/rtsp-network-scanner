@@ -9,7 +9,7 @@ long_description = readme_file.read_text() if readme_file.exists() else ''
 
 setup(
     name='rtsp-network-scanner',
-    version='2.2.1',
+    version='2.2.2',
     author='Sanjay H',
     author_email='contact@sanjayhona.com.np',
     description='Scan networks for RTSP cameras, test streams, discover channels',
