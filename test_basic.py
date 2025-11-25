@@ -71,11 +71,15 @@ def test_port_scanner():
     """Test PortScanner initialization"""
     print("\nTest 4: Testing PortScanner...")
     try:
-        from rtsp_scanner.core.port_scanner import PortScanner
+        from rtsp_scanner.core.port_scanner import PortScanner, ProgressBar
 
         scanner = PortScanner(timeout=1.0, max_workers=10)
         assert scanner.timeout == 1.0, "Timeout mismatch"
         assert scanner.max_workers == 10, "Workers mismatch"
+
+        # Test ProgressBar class
+        progress = ProgressBar(100, prefix="Scanning")
+        assert progress.total == 100, "ProgressBar total mismatch"
 
         print("  ✓ PortScanner initialization works")
         return True
@@ -88,12 +92,17 @@ def test_channel_scanner():
     """Test ChannelScanner initialization"""
     print("\nTest 5: Testing ChannelScanner...")
     try:
-        from rtsp_scanner.core.channel_scanner import ChannelScanner
+        from rtsp_scanner.core.channel_scanner import ChannelScanner, ProgressBar
 
         scanner = ChannelScanner(timeout=2.0, max_workers=5)
         assert scanner.timeout == 2.0, "Timeout mismatch"
         assert scanner.max_workers == 5, "Workers mismatch"
         assert len(scanner.COMMON_PATHS) > 0, "No common paths"
+
+        # Test ProgressBar class
+        progress = ProgressBar(10, prefix="Test")
+        assert progress.total == 10, "ProgressBar total mismatch"
+        assert progress.prefix == "Test", "ProgressBar prefix mismatch"
 
         print("  ✓ ChannelScanner initialization works")
         return True
@@ -225,7 +234,7 @@ def test_package_version():
         import rtsp_scanner
 
         assert hasattr(rtsp_scanner, '__version__'), "No version attribute"
-        assert rtsp_scanner.__version__ == '1.0.0', "Version mismatch"
+        assert rtsp_scanner.__version__ == '2.3.1', f"Version mismatch: expected 2.3.1, got {rtsp_scanner.__version__}"
 
         print("  ✓ Package metadata correct")
         return True

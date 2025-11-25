@@ -33,7 +33,8 @@ def main():
     print("-" * 70)
 
     scanner = PortScanner(timeout=TIMEOUT, max_workers=MAX_WORKERS, logger=logger)
-    port_results = scanner.scan_network(NETWORK)
+    # Progress bar is shown by default, set show_progress=False to disable
+    port_results = scanner.scan_network(NETWORK, show_progress=True)
 
     if not port_results:
         print("\nNo open RTSP ports found on the network.")
@@ -57,13 +58,12 @@ def main():
     hosts = list(set(result['host'] for result in port_results))
 
     for i, host in enumerate(hosts, 1):
-        print(f"\n[{i}/{len(hosts)}] Scanning channels on {host}...")
-
         # Get port(s) for this host
         host_ports = [r['port'] for r in port_results if r['host'] == host]
 
         for port in host_ports:
-            channels = channel_scanner.quick_scan(host, port)
+            # Progress bar shows scanning status
+            channels = channel_scanner.quick_scan(host, port, show_progress=True)
 
             if channels:
                 print(f"  Found {len(channels)} channel(s) on {host}:{port}")

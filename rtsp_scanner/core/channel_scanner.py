@@ -1,8 +1,63 @@
 """Channel scanner for RTSP cameras"""
 
 import concurrent.futures
+import sys
+import threading
 from typing import List, Dict
 from .rtsp_tester import RTSPTester
+
+
+class ProgressBar:
+    """Simple thread-safe progress bar for terminal output"""
+
+    def __init__(self, total: int, prefix: str = "", width: int = 40):
+        """
+        Initialize progress bar
+
+        Args:
+            total: Total number of items
+            prefix: Prefix text to show before progress bar
+            width: Width of the progress bar in characters
+        """
+        self.total = total
+        self.prefix = prefix
+        self.width = width
+        self.current = 0
+        self.found = 0
+        self._lock = threading.Lock()
+        self._last_line_length = 0
+
+    def update(self, increment: int = 1, found: bool = False):
+        """Update progress bar"""
+        with self._lock:
+            self.current += increment
+            if found:
+                self.found += 1
+            self._render()
+
+    def _render(self):
+        """Render the progress bar to terminal"""
+        if self.total == 0:
+            return
+
+        percent = self.current / self.total
+        filled = int(self.width * percent)
+        bar = "█" * filled + "░" * (self.width - filled)
+
+        line = f"\r{self.prefix} [{bar}] {self.current}/{self.total} ({self.found} found)"
+
+        # Clear any extra characters from previous line
+        if len(line) < self._last_line_length:
+            line += " " * (self._last_line_length - len(line))
+        self._last_line_length = len(line)
+
+        sys.stdout.write(line)
+        sys.stdout.flush()
+
+    def finish(self):
+        """Finish the progress bar and move to new line"""
+        sys.stdout.write("\n")
+        sys.stdout.flush()
 
 
 class ChannelScanner:
@@ -168,7 +223,8 @@ class ChannelScanner:
 
     def scan_channels(self, host: str, port: int = 554,
                      username: str = None, password: str = None,
-                     custom_paths: List[str] = None) -> List[Dict]:
+                     custom_paths: List[str] = None,
+                     show_progress: bool = True) -> List[Dict]:
         """
         Scan for available RTSP channels on a host
 
@@ -178,15 +234,20 @@ class ChannelScanner:
             username: Optional username for authentication
             password: Optional password for authentication
             custom_paths: Optional list of custom paths to test
+            show_progress: Show progress bar (default: True)
 
         Returns:
             List of available channels with details
         """
         paths_to_test = custom_paths if custom_paths else self.COMMON_PATHS
+        total = len(paths_to_test)
 
-        self._log(f"Scanning {len(paths_to_test)} channel paths on {host}:{port}")
+        self._log(f"Scanning {total} channel paths on {host}:{port}", "debug")
 
         available_channels = []
+
+        # Create progress bar
+        progress = ProgressBar(total, prefix=f"Scanning {host}:{port}") if show_progress else None
 
         with concurrent.futures.ThreadPoolExecutor(max_workers=self.max_workers) as executor:
             futures = []
@@ -195,19 +256,20 @@ class ChannelScanner:
                 url = self.tester.generate_rtsp_url(host, port, path, username, password)
                 futures.append(executor.submit(self._test_channel, url, path))
 
-            completed = 0
-            total = len(futures)
-
             for future in concurrent.futures.as_completed(futures):
-                completed += 1
-                if completed % 10 == 0:
-                    self._log(f"Progress: {completed}/{total} channels tested", "debug")
-
                 result = future.result()
+                found = False
                 if result:
                     available_channels.append(result)
+                    found = True
 
-        self._log(f"Found {len(available_channels)} available channel(s)")
+                if progress:
+                    progress.update(found=found)
+
+        if progress:
+            progress.finish()
+
+        self._log(f"Found {len(available_channels)} available channel(s) on {host}:{port}")
         return available_channels
 
     def _test_channel(self, url: str, path: str) -> Dict:
@@ -221,8 +283,6 @@ class ChannelScanner:
         Returns:
             Channel info dict if available, None otherwise
         """
-        self._log(f"Testing channel: {path}", "debug")
-
         result = self.tester.test_rtsp_connection(url)
 
         if result['reachable'] and result.get('status_code') in [200, 401]:
@@ -239,14 +299,15 @@ class ChannelScanner:
                 'requires_auth': result['status_code'] == 401
             }
 
-            self._log(f"Found available channel: {path} (Status: {result['status_code']})")
+            self._log(f"Found channel: {path} (Status: {result['status_code']})", "debug")
             return channel_info
 
         return None
 
     def scan_with_credentials(self, host: str, port: int = 554,
                             custom_paths: List[str] = None,
-                            custom_credentials: List[tuple] = None) -> List[Dict]:
+                            custom_credentials: List[tuple] = None,
+                            show_progress: bool = True) -> List[Dict]:
         """
         Scan channels trying multiple credential combinations
 
@@ -255,6 +316,7 @@ class ChannelScanner:
             port: RTSP port (default: 554)
             custom_paths: Optional list of custom paths to test
             custom_credentials: Optional list of (username, password) tuples
+            show_progress: Show progress bar (default: True)
 
         Returns:
             List of available channels with working credentials
@@ -262,10 +324,13 @@ class ChannelScanner:
         paths_to_test = custom_paths if custom_paths else self.COMMON_PATHS[:20]  # Limit paths
         credentials_to_test = custom_credentials if custom_credentials else self.COMMON_CREDENTIALS
 
-        self._log(f"Scanning with {len(credentials_to_test)} credential combinations "
-                 f"and {len(paths_to_test)} paths")
+        total = len(credentials_to_test) * len(paths_to_test)
+        self._log(f"Scanning with {len(credentials_to_test)} credentials × {len(paths_to_test)} paths", "debug")
 
         available_channels = []
+
+        # Create progress bar
+        progress = ProgressBar(total, prefix=f"Auth scan {host}:{port}") if show_progress else None
 
         with concurrent.futures.ThreadPoolExecutor(max_workers=self.max_workers) as executor:
             futures = []
@@ -277,19 +342,20 @@ class ChannelScanner:
                         self._test_channel_with_creds, url, path, username, password
                     ))
 
-            completed = 0
-            total = len(futures)
-
             for future in concurrent.futures.as_completed(futures):
-                completed += 1
-                if completed % 20 == 0:
-                    self._log(f"Progress: {completed}/{total} combinations tested", "debug")
-
                 result = future.result()
+                found = False
                 if result:
                     available_channels.append(result)
+                    found = True
 
-        self._log(f"Found {len(available_channels)} working channel/credential combination(s)")
+                if progress:
+                    progress.update(found=found)
+
+        if progress:
+            progress.finish()
+
+        self._log(f"Found {len(available_channels)} working channel/credential combination(s) on {host}:{port}")
         return available_channels
 
     def _test_channel_with_creds(self, url: str, path: str,
@@ -306,8 +372,6 @@ class ChannelScanner:
         Returns:
             Channel info dict if accessible, None otherwise
         """
-        self._log(f"Testing {path} with user={username}", "debug")
-
         result = self.tester.test_rtsp_connection(url)
 
         if result['reachable'] and result.get('status_code') == 200:
@@ -321,14 +385,15 @@ class ChannelScanner:
                 'server_info': result.get('server_info')
             }
 
-            self._log(f"Success: {path} with {username}:{password}")
+            self._log(f"Success: {path} with {username}:{password}", "debug")
             return channel_info
 
         return None
 
     def scan_numbered_channels(self, host: str, port: int = 554,
                               channel_range: range = range(1, 17),
-                              username: str = None, password: str = None) -> List[Dict]:
+                              username: str = None, password: str = None,
+                              show_progress: bool = True) -> List[Dict]:
         """
         Scan numbered channels (e.g., /channel1, /channel2, etc.)
 
@@ -338,6 +403,7 @@ class ChannelScanner:
             channel_range: Range of channel numbers to test
             username: Optional username for authentication
             password: Optional password for authentication
+            show_progress: Show progress bar (default: True)
 
         Returns:
             List of available numbered channels
@@ -360,16 +426,17 @@ class ChannelScanner:
                 else:
                     paths.append(pattern.format(num))
 
-        self._log(f"Scanning {len(paths)} numbered channel variations")
-        return self.scan_channels(host, port, username, password, paths)
+        self._log(f"Scanning {len(paths)} numbered channel variations", "debug")
+        return self.scan_channels(host, port, username, password, paths, show_progress)
 
-    def quick_scan(self, host: str, port: int = 554) -> List[Dict]:
+    def quick_scan(self, host: str, port: int = 554, show_progress: bool = True) -> List[Dict]:
         """
         Perform a quick scan with most common paths only
 
         Args:
             host: Target host IP or hostname
             port: RTSP port (default: 554)
+            show_progress: Show progress bar (default: True)
 
         Returns:
             List of available channels
@@ -387,5 +454,5 @@ class ChannelScanner:
             "/channel1",
         ]
 
-        self._log(f"Quick scan on {host}:{port}")
-        return self.scan_channels(host, port, custom_paths=quick_paths)
+        self._log(f"Quick scan on {host}:{port}", "debug")
+        return self.scan_channels(host, port, custom_paths=quick_paths, show_progress=show_progress)

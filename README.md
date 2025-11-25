@@ -34,6 +34,12 @@ One command scans everything:
 2. Discovers available channels on each camera
 3. Shows working RTSP URLs with response times
 
+**Progress bars** show real-time scanning progress:
+```
+Port scan 192.168.1.0/24 [████████████████████░░░░░░░░░░░░░░░░░░░░] 1024/2032 (2 found)
+Scanning 192.168.1.100:554 [████████████████████████████████████████] 61/61 (8 found)
+```
+
 ## Options
 
 - `--debug` - Debug logging

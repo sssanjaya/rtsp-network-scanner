@@ -67,23 +67,24 @@ Examples:
                 # Auto-detect network
                 target = get_local_network()
                 local_ip = get_local_ip()
-                logger.info(f"Auto-detected: {target} (Your IP: {local_ip})")
+                print(f"Auto-detected network: {target} (Your IP: {local_ip})")
 
             # Step 1: Scan for open RTSP ports
-            logger.info(f"Scanning for RTSP ports on {target}...")
+            print(f"Scanning for RTSP ports on {target}...\n")
             port_scanner = PortScanner(timeout=args.timeout, max_workers=args.workers, logger=logger)
 
             # Determine if it's a network, range, or single host
+            show_progress = not args.debug
             if '/' in target:
                 # CIDR network
-                port_results = port_scanner.scan_network(target, ports=args.ports)
+                port_results = port_scanner.scan_network(target, ports=args.ports, show_progress=show_progress)
             elif '-' in target:
                 # IP range (e.g., 192.168.1.1-192.168.1.254)
                 parts = target.split('-')
-                port_results = port_scanner.scan_ip_range(parts[0].strip(), parts[1].strip(), ports=args.ports)
+                port_results = port_scanner.scan_ip_range(parts[0].strip(), parts[1].strip(), ports=args.ports, show_progress=show_progress)
             else:
                 # Single host
-                port_results = port_scanner.scan_host(target, ports=args.ports)
+                port_results = port_scanner.scan_host(target, ports=args.ports, show_progress=show_progress)
 
             # Display port scan results
             if port_results:
@@ -104,18 +105,19 @@ Examples:
                         open_hosts[host].append(port)
 
                 if open_hosts:
-                    logger.info(f"\nFound {len(open_hosts)} host(s) with open RTSP ports. Scanning for channels...")
+                    total_ports = sum(len(ports) for ports in open_hosts.values())
+                    print(f"\nFound {len(open_hosts)} host(s) with {total_ports} open RTSP port(s). Scanning for channels...\n")
                     channel_scanner = ChannelScanner(timeout=args.timeout, max_workers=args.workers, logger=logger)
 
                     all_channels = []
                     for host, ports in open_hosts.items():
                         for port in ports:
-                            logger.info(f"Scanning channels on {host}:{port}")
                             channels = channel_scanner.scan_channels(
                                 host,
                                 port,
                                 args.username,
-                                args.password
+                                args.password,
+                                show_progress=not args.debug
                             )
 
                             # Add host and port info to results
@@ -135,10 +137,10 @@ Examples:
                             print(formatter.format_table(all_channels, ['host', 'port', 'path', 'stream_type', 'response_time']))
                         results = all_channels
                     else:
-                        logger.info("No accessible channels found")
+                        print("\nNo accessible channels found")
                         results = port_results
                 else:
-                    logger.info("No open RTSP ports found")
+                    print("\nNo open RTSP ports found")
                     results = port_results
             else:
                 results = port_results
@@ -148,10 +150,10 @@ Examples:
             output_path = Path(args.output)
             if output_path.suffix.lower() == '.json':
                 formatter.export_json(results, args.output)
-                logger.info(f"Exported to {args.output}")
+                print(f"\nExported to {args.output}")
             elif output_path.suffix.lower() == '.csv':
                 formatter.export_csv(results, args.output)
-                logger.info(f"Exported to {args.output}")
+                print(f"\nExported to {args.output}")
 
         return 0
 
@@ -159,7 +161,7 @@ Examples:
         print("\n\nInterrupted")
         return 130
     except Exception as e:
-        logger.error(f"Error: {str(e)}")
+        print(f"\nError: {str(e)}")
         if args.debug:
             raise
         return 1

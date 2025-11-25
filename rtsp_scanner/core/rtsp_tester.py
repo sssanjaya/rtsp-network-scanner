@@ -173,17 +173,19 @@ class RTSPTester:
             self._log(f"Error parsing URL: {str(e)}", "error")
             return None
 
-    def test_rtsp_connection(self, url: str) -> Dict:
+    def test_rtsp_connection(self, url: str, verbose: bool = False) -> Dict:
         """
         Test RTSP connection by sending DESCRIBE request
 
         Args:
             url: RTSP URL to test
+            verbose: If True, log connection attempts (default: False)
 
         Returns:
             Dictionary with test results
         """
-        self._log(f"Testing RTSP connection: {url}")
+        if verbose:
+            self._log(f"Testing RTSP connection: {url}")
 
         result = {
             'url': url,
@@ -201,7 +203,6 @@ class RTSPTester:
 
         host = parsed['hostname']
         port = parsed['port']
-        path = parsed['path']
 
         start_time = time.time()
 
@@ -262,12 +263,12 @@ class RTSPTester:
                         result.update(codec_info)
 
                     if status_code == 200:
-                        self._log(f"RTSP connection successful: {url}")
+                        self._log(f"RTSP connection successful: {url}", "debug")
                     elif status_code == 401:
-                        self._log(f"RTSP requires authentication: {url}")
+                        self._log(f"RTSP requires authentication: {url}", "debug")
                         result['error'] = "Authentication required"
                     elif status_code == 404:
-                        self._log(f"RTSP path not found: {url}")
+                        self._log(f"RTSP path not found: {url}", "debug")
                         result['error'] = "Path not found"
                     else:
                         result['error'] = f"Status code: {status_code}"
@@ -279,15 +280,15 @@ class RTSPTester:
         except socket.timeout:
             result['error'] = "Connection timeout"
             result['response_time'] = time.time() - start_time
-            self._log(f"Connection timeout for {url}", "warning")
+            self._log(f"Connection timeout for {url}", "debug")
         except socket.error as e:
             result['error'] = f"Socket error: {str(e)}"
             result['response_time'] = time.time() - start_time
-            self._log(f"Socket error for {url}: {str(e)}", "error")
+            self._log(f"Socket error for {url}: {str(e)}", "debug")
         except Exception as e:
             result['error'] = f"Unexpected error: {str(e)}"
             result['response_time'] = time.time() - start_time
-            self._log(f"Error testing {url}: {str(e)}", "error")
+            self._log(f"Error testing {url}: {str(e)}", "debug")
 
         return result
 

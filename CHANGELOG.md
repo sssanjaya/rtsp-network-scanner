@@ -17,6 +17,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Report generation in HTML/PDF
 - Database storage support
 
+## [2.3.1] - 2025-11-25
+
+### Fixed
+- Updated documentation and examples for progress bar feature
+- Fixed test assertions for version checking
+
+## [2.3.0] - 2025-11-25
+
+### Added
+- Progress bars for port scanning and channel discovery
+  - Shows real-time progress with completion percentage
+  - Displays count of found items during scan
+  - Thread-safe implementation for concurrent operations
+- `show_progress` parameter to scanner methods for controlling progress display
+
+### Changed
+- Reduced verbose logging during scans
+  - "Testing RTSP connection" messages moved to debug level
+  - Socket errors, timeouts, and path not found messages moved to debug level
+  - Cleaner output without timestamp clutter during normal operation
+- CLI output improved with cleaner formatting using print() instead of logger
+- Progress bars disabled automatically when `--debug` flag is used
+
+### Technical Details
+- Added `ProgressBar` class to both `port_scanner.py` and `channel_scanner.py`
+- Uses carriage return (`\r`) for in-place terminal updates
+- No new external dependencies (uses Python standard library only)
+
 ## [1.0.0] - 2025-11-25
 
 ### Added

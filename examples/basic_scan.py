@@ -31,7 +31,8 @@ def main():
     scanner = PortScanner(timeout=2.0, max_workers=10, logger=logger)
     host = '192.168.1.100'  # Change this to your camera IP
 
-    port_results = scanner.scan_host(host)
+    # show_progress=False to disable progress bar (useful when debug=True)
+    port_results = scanner.scan_host(host, show_progress=False)
 
     if port_results:
         print(f"\nFound {len(port_results)} open port(s):")
@@ -63,7 +64,8 @@ def main():
     channel_scanner = ChannelScanner(timeout=5.0, max_workers=10, logger=logger)
 
     # Quick scan with most common paths
-    channels = channel_scanner.quick_scan(host)
+    # show_progress=False to disable progress bar (useful when debug=True)
+    channels = channel_scanner.quick_scan(host, show_progress=False)
 
     if channels:
         print(f"\nFound {len(channels)} available channel(s):")
