@@ -1,0 +1,8 @@
+# RTSP Scanner Requirements
+# This package uses only Python standard library
+# No external dependencies required
+
+# Optional: For development
+# pytest>=7.0.0
+# black>=22.0.0
+# flake8>=4.0.0
