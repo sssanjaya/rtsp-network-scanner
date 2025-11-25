@@ -1,6 +1,6 @@
 # RTSP Network Scanner
 
-Scan networks for RTSP cameras, test streams, discover channels.
+Scan networks for RTSP cameras - finds hosts, ports, and channels in one command.
 
 ## Install
 
@@ -11,28 +11,28 @@ pip install rtsp-network-scanner
 ## Usage
 
 ```bash
-# Auto-scan your local network
-rtsp-network-scanner network
+# Scan local network (auto-detected) - finds cameras, ports, and channels
+rtsp-network-scanner scan
 
 # Scan specific network
-rtsp-network-scanner network 192.168.1.0/24
+rtsp-network-scanner scan 192.168.1.0/24
 
 # Scan single host
-rtsp-network-scanner ports 192.168.1.100
+rtsp-network-scanner scan 192.168.1.100
 
-# Validate RTSP URL
-rtsp-network-scanner validate rtsp://192.168.1.100:554/stream
+# Scan with credentials
+rtsp-network-scanner scan -u admin -p password
 
-# Scan for channels
-rtsp-network-scanner channels 192.168.1.100
+# Skip channel discovery (ports only)
+rtsp-network-scanner scan --skip-channels
 ```
 
-## Commands
+## What it does
 
-- `network` - Scan network (auto-detects if no network specified)
-- `ports` - Scan single host
-- `validate` - Validate RTSP URL
-- `channels` - Scan for channels
+One command scans everything:
+1. Finds hosts with open RTSP ports (554, 8554, 7447, etc.)
+2. Discovers available channels on each camera
+3. Shows working RTSP URLs with response times
 
 ## Options
 

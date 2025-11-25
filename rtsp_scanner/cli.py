@@ -19,20 +19,14 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  # Auto-scan local network
-  rtsp-network-scanner network
+  # Scan local network (auto-detected)
+  rtsp-network-scanner scan
 
   # Scan specific network
-  rtsp-network-scanner network 192.168.1.0/24
+  rtsp-network-scanner scan 192.168.1.0/24
 
   # Scan single host
-  rtsp-network-scanner ports 192.168.1.100
-
-  # Validate RTSP URL
-  rtsp-network-scanner validate rtsp://192.168.1.100:554/stream
-
-  # Scan for channels
-  rtsp-network-scanner channels 192.168.1.100
+  rtsp-network-scanner scan 192.168.1.100
         """
     )
 
@@ -44,28 +38,13 @@ Examples:
 
     subparsers = parser.add_subparsers(dest='command', help='Commands')
 
-    # Network scan command
-    scan_net = subparsers.add_parser('network', help='Scan network for RTSP ports')
-    scan_net.add_argument('network', nargs='?', help='Network in CIDR notation (auto-detected if omitted)')
-    scan_net.add_argument('--ports', nargs='+', type=int, help='Ports to scan')
-
-    # Scan ports command
-    scan_ports = subparsers.add_parser('ports', help='Scan ports on single host')
-    scan_ports.add_argument('host', help='Target host IP or hostname')
-    scan_ports.add_argument('--ports', nargs='+', type=int, help='Ports to scan')
-
-    # Scan channels command
-    scan_ch = subparsers.add_parser('channels', help='Scan for channels')
-    scan_ch.add_argument('host', help='Target host')
-    scan_ch.add_argument('--port', type=int, default=554, help='Port (default: 554)')
-    scan_ch.add_argument('--username', '-u', help='Username')
-    scan_ch.add_argument('--password', '-p', help='Password')
-    scan_ch.add_argument('--paths', nargs='+', help='Custom paths')
-    scan_ch.add_argument('--with-creds', action='store_true', help='Try common credentials')
-
-    # Validate URL command
-    validate = subparsers.add_parser('validate', help='Validate RTSP URL')
-    validate.add_argument('url', help='RTSP URL')
+    # Main scan command - does everything
+    scan = subparsers.add_parser('scan', help='Scan for RTSP cameras (ports + channels)')
+    scan.add_argument('target', nargs='?', help='Network (CIDR), IP range, or single host (auto-detected if omitted)')
+    scan.add_argument('--ports', nargs='+', type=int, help='Ports to scan')
+    scan.add_argument('--username', '-u', help='Username for channel scan')
+    scan.add_argument('--password', '-p', help='Password for channel scan')
+    scan.add_argument('--skip-channels', action='store_true', help='Skip channel discovery')
 
     args = parser.parse_args()
 
@@ -81,54 +60,80 @@ Examples:
         results = []
 
         # Execute command
-        if args.command == 'network':
-            # Auto-detect network if not provided
-            if args.network is None:
-                network = get_local_network()
+        if args.command == 'scan':
+            # Determine target
+            target = args.target
+            if target is None:
+                # Auto-detect network
+                target = get_local_network()
                 local_ip = get_local_ip()
-                logger.info(f"Auto-detected: {network} (Your IP: {local_ip})")
+                logger.info(f"Auto-detected: {target} (Your IP: {local_ip})")
+
+            # Step 1: Scan for open RTSP ports
+            logger.info(f"Scanning for RTSP ports on {target}...")
+            port_scanner = PortScanner(timeout=args.timeout, max_workers=args.workers, logger=logger)
+
+            # Determine if it's a network, range, or single host
+            if '/' in target:
+                # CIDR network
+                port_results = port_scanner.scan_network(target, ports=args.ports)
+            elif '-' in target:
+                # IP range (e.g., 192.168.1.1-192.168.1.254)
+                parts = target.split('-')
+                port_results = port_scanner.scan_ip_range(parts[0].strip(), parts[1].strip(), ports=args.ports)
             else:
-                network = args.network
+                # Single host
+                port_results = port_scanner.scan_host(target, ports=args.ports)
 
-            scanner = PortScanner(timeout=args.timeout, max_workers=args.workers, logger=logger)
-            results = scanner.scan_network(network, ports=args.ports)
-            print(formatter.format_summary(results, "Network Scan"))
-            if results:
-                print(formatter.format_table(results, ['host', 'port', 'status', 'response_time']))
+            # Display port scan results
+            print(formatter.format_summary(port_results, "Port Scan"))
+            if port_results:
+                print(formatter.format_table(port_results, ['host', 'port', 'status', 'response_time']))
 
-        elif args.command == 'ports':
-            scanner = PortScanner(timeout=args.timeout, max_workers=args.workers, logger=logger)
-            results = scanner.scan_host(args.host, ports=args.ports)
-            print(formatter.format_summary(results, "Port Scan"))
-            if results:
-                print(formatter.format_table(results, ['host', 'port', 'status', 'response_time']))
+            # Step 2: Scan for channels on hosts with open ports
+            if not args.skip_channels and port_results:
+                open_hosts = {}
+                for result in port_results:
+                    if result.get('status') == 'open':
+                        host = result['host']
+                        port = result['port']
+                        if host not in open_hosts:
+                            open_hosts[host] = []
+                        open_hosts[host].append(port)
 
-        elif args.command == 'validate':
-            tester = RTSPTester(logger=logger)
-            is_valid, message = tester.validate_rtsp_url(args.url)
-            print(f"\nURL: {args.url}")
-            print(f"Valid: {is_valid}")
-            print(f"Message: {message}\n")
+                if open_hosts:
+                    logger.info(f"\nFound {len(open_hosts)} host(s) with open RTSP ports. Scanning for channels...")
+                    channel_scanner = ChannelScanner(timeout=args.timeout, max_workers=args.workers, logger=logger)
 
-            if is_valid:
-                parsed = tester.parse_rtsp_url(args.url)
-                print("Parsed:")
-                print(formatter.format_json(parsed, pretty=True))
+                    all_channels = []
+                    for host, ports in open_hosts.items():
+                        for port in ports:
+                            logger.info(f"Scanning channels on {host}:{port}")
+                            channels = channel_scanner.scan_channels(
+                                host,
+                                port,
+                                args.username,
+                                args.password
+                            )
 
-        elif args.command == 'channels':
-            scanner = ChannelScanner(timeout=args.timeout, max_workers=args.workers, logger=logger)
+                            # Add host info to results
+                            for channel in channels:
+                                channel['host'] = host
+                                all_channels.append(channel)
 
-            if args.with_creds:
-                results = scanner.scan_with_credentials(args.host, args.port, custom_paths=args.paths)
+                    # Display channel results
+                    if all_channels:
+                        print(f"\n{formatter.format_summary(all_channels, 'Channel Scan')}")
+                        print(formatter.format_table(all_channels, ['host', 'port', 'path', 'status_code', 'response_time', 'requires_auth']))
+                        results = all_channels
+                    else:
+                        logger.info("No accessible channels found")
+                        results = port_results
+                else:
+                    logger.info("No open RTSP ports found")
+                    results = port_results
             else:
-                results = scanner.scan_channels(args.host, args.port, args.username, args.password, args.paths)
-
-            print(formatter.format_summary(results, "Channel Scan"))
-            if results:
-                headers = ['path', 'status_code', 'response_time', 'requires_auth']
-                if args.with_creds and results and 'username' in results[0]:
-                    headers.extend(['username', 'password'])
-                print(formatter.format_table(results, headers))
+                results = port_results
 
         # Export results
         if args.output and results:
