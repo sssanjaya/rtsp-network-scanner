@@ -124,7 +124,7 @@ Examples:
                     # Display channel results
                     if all_channels:
                         print(f"\n{formatter.format_summary(all_channels, 'Channel Scan')}")
-                        print(formatter.format_table(all_channels, ['host', 'port', 'path', 'status_code', 'response_time', 'requires_auth']))
+                        print(formatter.format_table(all_channels, ['host', 'port', 'path', 'stream_type', 'status_code', 'response_time', 'requires_auth']))
                         results = all_channels
                     else:
                         logger.info("No accessible channels found")

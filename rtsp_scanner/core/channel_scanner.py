@@ -123,6 +123,49 @@ class ChannelScanner:
         if self.logger:
             getattr(self.logger, level)(message)
 
+    def _detect_stream_type(self, path: str) -> str:
+        """
+        Detect if the stream is main or sub stream based on path patterns
+
+        Args:
+            path: RTSP path
+
+        Returns:
+            'Main', 'Sub', or '' (empty string for unknown)
+        """
+        path_lower = path.lower()
+
+        # Sub stream indicators - check these FIRST (more specific)
+        sub_indicators = [
+            '/sub/', 'subtype=1', '/streaming/channels/102', '/streaming/channels/202',
+            '/streaming/channels/302', '/streaming/channels/402', '/streaming/channels/502',
+            '/streaming/channels/602', '/streaming/channels/702', '/streaming/channels/802',
+            'videosub', '/stream2', '/ch02', '/channel2', '/video2', '/cam2',
+            'resolution=640x480', 'resolution=320x240'
+        ]
+
+        # Main stream indicators
+        main_indicators = [
+            '/main/', 'channel=1&subtype=0', 'subtype=0',
+            '/streaming/channels/101', '/streaming/channels/201', '/streaming/channels/301',
+            '/streaming/channels/401', '/streaming/channels/501', '/streaming/channels/601',
+            '/streaming/channels/701', '/streaming/channels/801',
+            'videomain', '/stream1', '/ch01', '/channel1', '/video1', '/cam1',
+            'resolution=1920x1080', 'resolution=1280x720'
+        ]
+
+        # Check for sub stream first (more specific patterns)
+        for indicator in sub_indicators:
+            if indicator in path_lower:
+                return 'Sub'
+
+        # Check for main stream
+        for indicator in main_indicators:
+            if indicator in path_lower:
+                return 'Main'
+
+        return ''
+
     def scan_channels(self, host: str, port: int = 554,
                      username: str = None, password: str = None,
                      custom_paths: List[str] = None) -> List[Dict]:
@@ -183,11 +226,13 @@ class ChannelScanner:
         result = self.tester.test_rtsp_connection(url)
 
         if result['reachable'] and result.get('status_code') in [200, 401]:
+            stream_type = self._detect_stream_type(path)
             channel_info = {
                 'url': url,
                 'path': path,
                 'status_code': result['status_code'],
                 'response_time': result['response_time'],
+                'stream_type': stream_type,
                 'server_info': result.get('server_info'),
                 'requires_auth': result['status_code'] == 401
             }
