@@ -164,8 +164,8 @@ class OutputFormatter:
             code_200 = sum(1 for r in results if r.get('status_code') == 200)
             code_401 = sum(1 for r in results if r.get('status_code') == 401)
             if code_200 > 0:
-                summary.append(f"  ✓ {code_200} accessible")
+                summary.append(f"  ✓ {code_200} accessible (no auth)")
             if code_401 > 0:
-                summary.append(f"  ⚠ {code_401} require auth")
+                summary.append(f"  🔒 {code_401} require credentials")
 
         return '\n'.join(summary) + '\n'
