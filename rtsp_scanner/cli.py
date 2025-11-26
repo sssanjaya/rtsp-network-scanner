@@ -138,6 +138,12 @@ Examples:
                                 if first_valid.get('resolution'):
                                     print(f"  Resolution: {first_valid['resolution']}")
                                 print()
+                            else:
+                                # Check if all channels require auth (invalid credentials)
+                                auth_required = [c for c in all_channels if c.get('status_code') == 401]
+                                if auth_required:
+                                    print(f"\n✗ Credentials INVALID")
+                                    print()
 
                         print(formatter.format_summary(all_channels, 'Channels'))
 
