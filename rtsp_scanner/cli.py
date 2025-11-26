@@ -70,7 +70,7 @@ Examples:
                 print(f"Auto-detected network: {target} (Your IP: {local_ip})")
 
             # Step 1: Scan for open RTSP ports
-            print(f"Scanning for RTSP ports on {target}...\n")
+            print(f"Scanning {target}...\n")
             port_scanner = PortScanner(timeout=args.timeout, max_workers=args.workers, logger=logger)
 
             # Determine if it's a network, range, or single host
@@ -105,8 +105,7 @@ Examples:
                         open_hosts[host].append(port)
 
                 if open_hosts:
-                    total_ports = sum(len(ports) for ports in open_hosts.values())
-                    print(f"\nFound {len(open_hosts)} host(s) with {total_ports} open RTSP port(s). Scanning for channels...\n")
+                    print()  # Empty line for spacing
                     channel_scanner = ChannelScanner(timeout=args.timeout, max_workers=args.workers, logger=logger)
 
                     all_channels = []
@@ -128,21 +127,19 @@ Examples:
 
                     # Display channel results
                     if all_channels:
-                        print(formatter.format_summary(all_channels, 'Channels'))
-
                         # Show credential validation status if credentials were provided
                         if args.username and args.password:
                             valid_channels = [c for c in all_channels if c.get('status_code') == 200]
                             if valid_channels:
-                                print("\n✓ Credentials are VALID")
-                                # Show codec/resolution from first valid channel
                                 first_valid = valid_channels[0]
+                                print(f"\n✓ Credentials VALID")
                                 if first_valid.get('codec'):
                                     print(f"  Codec: {first_valid['codec']}")
                                 if first_valid.get('resolution'):
                                     print(f"  Resolution: {first_valid['resolution']}")
-                                print(f"  Response time: {formatter._format_response_time(first_valid['response_time'])}")
                                 print()
+
+                        print(formatter.format_summary(all_channels, 'Channels'))
 
                         # Only show codec/resolution if at least one channel has codec data
                         has_codec = any(c.get('codec') for c in all_channels)

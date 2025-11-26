@@ -2,7 +2,7 @@
 RTSP Scanner - A comprehensive tool for scanning and debugging RTSP streams
 """
 
-__version__ = "2.3.4"
+__version__ = "2.3.5"
 __author__ = "Sanjay H"
 
 from .core.port_scanner import PortScanner
