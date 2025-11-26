@@ -46,12 +46,6 @@ Examples:
     scan.add_argument('--password', '-p', help='Password for channel scan')
     scan.add_argument('--skip-channels', action='store_true', help='Skip channel discovery')
 
-    # Login command - validate credentials
-    login = subparsers.add_parser('login', help='Validate camera credentials')
-    login.add_argument('url', help='RTSP URL to test (e.g., rtsp://192.168.1.100:554/stream1)')
-    login.add_argument('--username', '-u', required=True, help='Username')
-    login.add_argument('--password', '-p', required=True, help='Password')
-
     args = parser.parse_args()
 
     if not args.command:
@@ -135,6 +129,21 @@ Examples:
                     # Display channel results
                     if all_channels:
                         print(formatter.format_summary(all_channels, 'Channels'))
+
+                        # Show credential validation status if credentials were provided
+                        if args.username and args.password:
+                            valid_channels = [c for c in all_channels if c.get('status_code') == 200]
+                            if valid_channels:
+                                print("\n✓ Credentials are VALID")
+                                # Show codec/resolution from first valid channel
+                                first_valid = valid_channels[0]
+                                if first_valid.get('codec'):
+                                    print(f"  Codec: {first_valid['codec']}")
+                                if first_valid.get('resolution'):
+                                    print(f"  Resolution: {first_valid['resolution']}")
+                                print(f"  Response time: {formatter._format_response_time(first_valid['response_time'])}")
+                                print()
+
                         # Only show codec/resolution if at least one channel has codec data
                         has_codec = any(c.get('codec') for c in all_channels)
                         if has_codec:
@@ -150,32 +159,6 @@ Examples:
                     results = port_results
             else:
                 results = port_results
-
-        # Handle login command - validate credentials
-        elif args.command == 'login':
-            tester = RTSPTester(timeout=args.timeout, logger=logger)
-
-            print(f"\nValidating credentials for {args.url}...")
-            print(f"Username: {args.username}")
-            print(f"Password: {'*' * len(args.password)}\n")
-
-            validation = tester.validate_credentials(args.url, args.username, args.password)
-
-            if validation['valid']:
-                print("✓ Credentials are VALID")
-                print(f"  Status: 200 OK")
-                print(f"  Response time: {formatter._format_response_time(validation['response_time'])}")
-                if validation.get('codec'):
-                    print(f"  Codec: {validation['codec']}")
-                if validation.get('resolution'):
-                    print(f"  Resolution: {validation['resolution']}")
-            else:
-                print("✗ Credentials are INVALID")
-                print(f"  Status: {validation.get('status_code', 'N/A')}")
-                print(f"  Error: {validation.get('error', 'Unknown error')}")
-                return 1
-
-            results = [validation]
 
         # Export results
         if args.output and results:
