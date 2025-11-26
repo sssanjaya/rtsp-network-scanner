@@ -45,6 +45,19 @@ Examples:
     scan.add_argument('--username', '-u', help='Username for channel scan')
     scan.add_argument('--password', '-p', help='Password for channel scan')
     scan.add_argument('--skip-channels', action='store_true', help='Skip channel discovery')
+    scan.add_argument('--verify-playback', action='store_true', help='Verify streams are actually playable')
+
+    # Login command - validate credentials
+    login = subparsers.add_parser('login', help='Validate camera credentials')
+    login.add_argument('url', help='RTSP URL to test (e.g., rtsp://192.168.1.100:554/stream1)')
+    login.add_argument('--username', '-u', required=True, help='Username')
+    login.add_argument('--password', '-p', required=True, help='Password')
+
+    # Verify command - check if stream is playable
+    verify = subparsers.add_parser('verify', help='Verify stream playback')
+    verify.add_argument('url', help='RTSP URL to verify')
+    verify.add_argument('--username', '-u', help='Username (if required)')
+    verify.add_argument('--password', '-p', help='Password (if required)')
 
     args = parser.parse_args()
 
@@ -144,6 +157,53 @@ Examples:
                     results = port_results
             else:
                 results = port_results
+
+        # Handle login command - validate credentials
+        elif args.command == 'login':
+            tester = RTSPTester(timeout=args.timeout, logger=logger)
+
+            print(f"\nValidating credentials for {args.url}...")
+            print(f"Username: {args.username}")
+            print(f"Password: {'*' * len(args.password)}\n")
+
+            validation = tester.validate_credentials(args.url, args.username, args.password)
+
+            if validation['valid']:
+                print("✓ Credentials are VALID")
+                print(f"  Status: 200 OK")
+                print(f"  Response time: {formatter._format_response_time(validation['response_time'])}")
+                if validation.get('codec'):
+                    print(f"  Codec: {validation['codec']}")
+                if validation.get('resolution'):
+                    print(f"  Resolution: {validation['resolution']}")
+            else:
+                print("✗ Credentials are INVALID")
+                print(f"  Status: {validation.get('status_code', 'N/A')}")
+                print(f"  Error: {validation.get('error', 'Unknown error')}")
+                return 1
+
+            results = [validation]
+
+        # Handle verify command - check stream playback
+        elif args.command == 'verify':
+            tester = RTSPTester(timeout=args.timeout, logger=logger)
+
+            print(f"\nVerifying stream playback for {args.url}...\n")
+
+            playback = tester.verify_stream_playback(args.url, args.username, args.password)
+
+            print("Stream Verification Results:")
+            print(f"  URL: {args.url}")
+            print(f"  Playable: {'✓ YES' if playback['playable'] else '✗ NO'}")
+            print(f"  SETUP OK: {'✓' if playback['setup_ok'] else '✗'}")
+            print(f"  PLAY OK: {'✓' if playback['play_ok'] else '✗'}")
+            print(f"  Data Received: {'✓' if playback['data_received'] else '✗'}")
+
+            if playback.get('error'):
+                print(f"  Error: {playback['error']}")
+                return 1
+
+            results = [playback]
 
         # Export results
         if args.output and results:

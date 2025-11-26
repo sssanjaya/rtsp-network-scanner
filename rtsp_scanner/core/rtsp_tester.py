@@ -356,6 +356,176 @@ class RTSPTester:
 
         return successful
 
+    def validate_credentials(self, url: str, username: str, password: str) -> Dict:
+        """
+        Validate if provided credentials work for the camera
+
+        Args:
+            url: RTSP URL to test
+            username: Username to validate
+            password: Password to validate
+
+        Returns:
+            Dictionary with validation results including:
+            - valid: Boolean if credentials work
+            - status_code: HTTP status code
+            - error: Error message if any
+            - codec: Video codec if accessible
+            - resolution: Video resolution if accessible
+        """
+        self._log(f"Validating credentials for {url} with username: {username}")
+
+        result = self.test_rtsp_with_auth(url, username, password)
+
+        validation = {
+            'url': url,
+            'username': username,
+            'valid': False,
+            'status_code': result.get('status_code'),
+            'error': result.get('error'),
+            'response_time': result.get('response_time'),
+            'codec': result.get('codec'),
+            'resolution': result.get('resolution')
+        }
+
+        # Credentials are valid if we get 200 OK
+        if result.get('reachable') and result.get('status_code') == 200:
+            validation['valid'] = True
+            self._log(f"✓ Credentials validated successfully for {url}")
+        elif result.get('status_code') == 401:
+            validation['error'] = "Invalid credentials (401 Unauthorized)"
+            self._log(f"✗ Invalid credentials for {url}")
+        else:
+            self._log(f"✗ Could not validate credentials: {validation['error']}")
+
+        return validation
+
+    def verify_stream_playback(self, url: str, username: str = None, password: str = None) -> Dict:
+        """
+        Verify that the stream can actually play by sending SETUP and PLAY requests
+
+        Args:
+            url: RTSP URL to test
+            username: Optional username
+            password: Optional password
+
+        Returns:
+            Dictionary with playback verification results including:
+            - playable: Boolean if stream can be played
+            - setup_ok: Boolean if SETUP succeeded
+            - play_ok: Boolean if PLAY succeeded
+            - data_received: Boolean if actual video data was received
+            - error: Error message if any
+        """
+        self._log(f"Verifying stream playback for {url}")
+
+        result = {
+            'url': url,
+            'playable': False,
+            'setup_ok': False,
+            'play_ok': False,
+            'data_received': False,
+            'error': None
+        }
+
+        # First, test basic connection
+        if username and password:
+            test_result = self.test_rtsp_with_auth(url, username, password)
+        else:
+            test_result = self.test_rtsp_connection(url)
+
+        if not test_result.get('reachable'):
+            result['error'] = test_result.get('error', 'Not reachable')
+            return result
+
+        if test_result.get('status_code') not in [200, 401]:
+            result['error'] = f"Invalid status code: {test_result.get('status_code')}"
+            return result
+
+        # If auth required but no credentials provided
+        if test_result.get('status_code') == 401 and not (username and password):
+            result['error'] = "Authentication required but no credentials provided"
+            return result
+
+        parsed = self.parse_rtsp_url(url)
+        if not parsed:
+            result['error'] = "Invalid URL"
+            return result
+
+        host = parsed['hostname']
+        port = parsed['port']
+
+        try:
+            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            sock.settimeout(self.timeout)
+            sock.connect((host, port))
+
+            # Send SETUP request
+            setup_request = (
+                f"SETUP {url} RTSP/1.0\r\n"
+                f"CSeq: 2\r\n"
+                f"Transport: RTP/AVP;unicast;client_port=8000-8001\r\n"
+                f"\r\n"
+            )
+            sock.sendall(setup_request.encode())
+            setup_response = sock.recv(4096).decode('utf-8', errors='ignore')
+
+            # Check SETUP response
+            if 'RTSP/1.0 200 OK' in setup_response or 'Session:' in setup_response:
+                result['setup_ok'] = True
+                self._log(f"SETUP request successful", "debug")
+
+                # Extract session ID
+                session_match = re.search(r'Session:\s*([^\s;]+)', setup_response)
+                session_id = session_match.group(1) if session_match else '12345678'
+
+                # Send PLAY request
+                play_request = (
+                    f"PLAY {url} RTSP/1.0\r\n"
+                    f"CSeq: 3\r\n"
+                    f"Session: {session_id}\r\n"
+                    f"\r\n"
+                )
+                sock.sendall(play_request.encode())
+                play_response = sock.recv(4096).decode('utf-8', errors='ignore')
+
+                # Check PLAY response
+                if 'RTSP/1.0 200 OK' in play_response:
+                    result['play_ok'] = True
+                    self._log(f"PLAY request successful", "debug")
+
+                    # Try to receive some data (this would be RTP packets in reality)
+                    sock.settimeout(2.0)
+                    try:
+                        data = sock.recv(1024)
+                        if len(data) > 0:
+                            result['data_received'] = True
+                            self._log(f"Received {len(data)} bytes of stream data", "debug")
+                    except socket.timeout:
+                        # Timeout is OK - it means PLAY worked but data comes via RTP
+                        self._log(f"No immediate data (normal for RTP streams)", "debug")
+
+                    # Stream is playable if PLAY succeeded
+                    result['playable'] = True
+                    self._log(f"✓ Stream is playable: {url}")
+                else:
+                    result['error'] = "PLAY request failed"
+                    self._log(f"✗ PLAY request failed", "debug")
+            else:
+                result['error'] = "SETUP request failed"
+                self._log(f"✗ SETUP request failed", "debug")
+
+            sock.close()
+
+        except socket.timeout:
+            result['error'] = "Connection timeout during playback test"
+        except socket.error as e:
+            result['error'] = f"Socket error: {str(e)}"
+        except Exception as e:
+            result['error'] = f"Unexpected error: {str(e)}"
+
+        return result
+
     def generate_rtsp_url(self, host: str, port: int = 554, path: str = "/",
                          username: str = None, password: str = None) -> str:
         """

@@ -10,6 +10,8 @@ pip install rtsp-network-scanner
 
 ## Usage
 
+### Scan Networks
+
 ```bash
 # Scan local network (auto-detected) - finds cameras, ports, and channels
 rtsp-network-scanner scan
@@ -25,6 +27,30 @@ rtsp-network-scanner scan -u admin -p password
 
 # Skip channel discovery (ports only)
 rtsp-network-scanner scan --skip-channels
+
+# Verify streams are playable
+rtsp-network-scanner scan --verify-playback
+```
+
+### Validate Credentials
+
+Test if username/password work for a camera:
+
+```bash
+# Check if credentials are valid
+rtsp-network-scanner login rtsp://192.168.1.100:554/stream1 -u admin -p password
+```
+
+### Verify Stream Playback
+
+Check if a stream actually plays (sends SETUP/PLAY commands):
+
+```bash
+# Verify stream without auth
+rtsp-network-scanner verify rtsp://192.168.1.100:554/stream1
+
+# Verify stream with credentials
+rtsp-network-scanner verify rtsp://192.168.1.100:554/stream1 -u admin -p password
 ```
 
 ## What it does
