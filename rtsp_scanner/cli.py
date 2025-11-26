@@ -45,19 +45,12 @@ Examples:
     scan.add_argument('--username', '-u', help='Username for channel scan')
     scan.add_argument('--password', '-p', help='Password for channel scan')
     scan.add_argument('--skip-channels', action='store_true', help='Skip channel discovery')
-    scan.add_argument('--verify-playback', action='store_true', help='Verify streams are actually playable')
 
     # Login command - validate credentials
     login = subparsers.add_parser('login', help='Validate camera credentials')
     login.add_argument('url', help='RTSP URL to test (e.g., rtsp://192.168.1.100:554/stream1)')
     login.add_argument('--username', '-u', required=True, help='Username')
     login.add_argument('--password', '-p', required=True, help='Password')
-
-    # Verify command - check if stream is playable
-    verify = subparsers.add_parser('verify', help='Verify stream playback')
-    verify.add_argument('url', help='RTSP URL to verify')
-    verify.add_argument('--username', '-u', help='Username (if required)')
-    verify.add_argument('--password', '-p', help='Password (if required)')
 
     args = parser.parse_args()
 
@@ -183,27 +176,6 @@ Examples:
                 return 1
 
             results = [validation]
-
-        # Handle verify command - check stream playback
-        elif args.command == 'verify':
-            tester = RTSPTester(timeout=args.timeout, logger=logger)
-
-            print(f"\nVerifying stream playback for {args.url}...\n")
-
-            playback = tester.verify_stream_playback(args.url, args.username, args.password)
-
-            print("Stream Verification Results:")
-            print(f"  URL: {args.url}")
-            print(f"  Playable: {'✓ YES' if playback['playable'] else '✗ NO'}")
-            print(f"  SETUP OK: {'✓' if playback['setup_ok'] else '✗'}")
-            print(f"  PLAY OK: {'✓' if playback['play_ok'] else '✗'}")
-            print(f"  Data Received: {'✓' if playback['data_received'] else '✗'}")
-
-            if playback.get('error'):
-                print(f"  Error: {playback['error']}")
-                return 1
-
-            results = [playback]
 
         # Export results
         if args.output and results:
