@@ -285,7 +285,7 @@ class ChannelScanner:
         """
         result = self.tester.test_rtsp_connection(url)
 
-        if result['reachable'] and result.get('status_code') in [200, 401]:
+        if result['reachable'] and result.get('status_code') == 200:
             stream_type = self._detect_stream_type(path)
             channel_info = {
                 'url': url,
@@ -296,7 +296,7 @@ class ChannelScanner:
                 'codec': result.get('codec'),
                 'resolution': result.get('resolution'),
                 'server_info': result.get('server_info'),
-                'requires_auth': result['status_code'] == 401
+                'requires_auth': False
             }
 
             self._log(f"Found channel: {path} (Status: {result['status_code']})", "debug")
