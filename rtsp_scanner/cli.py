@@ -1,6 +1,7 @@
 """Command-line interface for RTSP Scanner"""
 
 import argparse
+import concurrent.futures
 import sys
 from pathlib import Path
 
@@ -107,23 +108,71 @@ Examples:
                 if open_hosts:
                     print()  # Empty line for spacing
                     channel_scanner = ChannelScanner(timeout=args.timeout, max_workers=args.workers, logger=logger)
+                    tester = RTSPTester(timeout=args.timeout, logger=logger)
 
                     all_channels = []
+                    rtsp_hosts = []
+                    non_rtsp_hosts = []
+
+                    # Build list of all host:port combinations
+                    host_port_list = []
                     for host, ports in open_hosts.items():
                         for port in ports:
-                            channels = channel_scanner.scan_channels(
-                                host,
-                                port,
-                                args.username,
-                                args.password,
-                                show_progress=not args.debug
-                            )
+                            host_port_list.append((host, port))
 
-                            # Add host and port info to results
-                            for channel in channels:
-                                channel['host'] = host
-                                channel['port'] = port
-                                all_channels.append(channel)
+                    # Check RTSP protocol in parallel
+                    print(f"Checking RTSP protocol on {len(host_port_list)} host(s)...")
+
+                    with concurrent.futures.ThreadPoolExecutor(max_workers=args.workers) as executor:
+                        future_to_host = {
+                            executor.submit(tester.check_rtsp_protocol, host, port): (host, port)
+                            for host, port in host_port_list
+                        }
+                        for future in concurrent.futures.as_completed(future_to_host):
+                            host, port = future_to_host[future]
+                            protocol_check = future.result()
+                            if protocol_check.get('is_rtsp'):
+                                rtsp_hosts.append((
+                                    host,
+                                    port,
+                                    protocol_check.get('server_info'),
+                                    protocol_check.get('manufacturer')
+                                ))
+                            else:
+                                non_rtsp_hosts.append((host, port))
+
+                    # Report results with manufacturer breakdown
+                    if rtsp_hosts:
+                        manufacturers = {}
+                        for host, port, server_info, manufacturer in rtsp_hosts:
+                            mfr = manufacturer or 'Unknown'
+                            manufacturers[mfr] = manufacturers.get(mfr, 0) + 1
+
+                        mfr_summary = ', '.join([f"{count} {name}" for name, count in manufacturers.items()])
+                        print(f"Found {len(rtsp_hosts)} RTSP host(s): {mfr_summary}")
+                    if non_rtsp_hosts:
+                        print(f"Skipping {len(non_rtsp_hosts)} non-RTSP host(s)")
+
+                    # Scan only RTSP hosts
+                    for host, port, server_info, manufacturer in rtsp_hosts:
+                        if manufacturer:
+                            logger.info(f"RTSP detected on {host}:{port} ({manufacturer})")
+                        elif server_info:
+                            logger.info(f"RTSP detected on {host}:{port} ({server_info})")
+                        channels = channel_scanner.scan_channels(
+                            host,
+                            port,
+                            args.username,
+                            args.password,
+                            show_progress=not args.debug
+                        )
+
+                        # Add host, port, and manufacturer info to results
+                        for channel in channels:
+                            channel['host'] = host
+                            channel['port'] = port
+                            channel['manufacturer'] = manufacturer
+                            all_channels.append(channel)
 
                     # Display channel results
                     if all_channels:
@@ -147,13 +196,28 @@ Examples:
 
                         print(formatter.format_summary(all_channels, 'Channels'))
 
-                        # Only show codec/resolution if at least one channel has codec data
+                        # Build columns based on available data
                         has_codec = any(c.get('codec') for c in all_channels)
+                        has_manufacturer = any(c.get('manufacturer') for c in all_channels)
+
                         if has_codec:
-                            print(formatter.format_table(all_channels, ['host', 'port', 'path', 'stream_type', 'codec', 'resolution', 'response_time']))
+                            if has_manufacturer:
+                                print(formatter.format_table(all_channels, ['host', 'port', 'manufacturer', 'path', 'stream_type', 'codec', 'resolution', 'response_time']))
+                            else:
+                                print(formatter.format_table(all_channels, ['host', 'port', 'path', 'stream_type', 'codec', 'resolution', 'response_time']))
                         else:
-                            print(formatter.format_table(all_channels, ['host', 'port', 'path', 'stream_type', 'response_time']))
+                            if has_manufacturer:
+                                print(formatter.format_table(all_channels, ['host', 'port', 'manufacturer', 'path', 'stream_type', 'response_time']))
+                            else:
+                                print(formatter.format_table(all_channels, ['host', 'port', 'path', 'stream_type', 'response_time']))
                         results = all_channels
+                    elif rtsp_hosts:
+                        print("\nNo accessible channels found on RTSP hosts")
+                        results = port_results
+                    elif non_rtsp_hosts:
+                        print(f"\nNo RTSP protocol detected on any of the {len(non_rtsp_hosts)} open port(s)")
+                        print("These may be HTTP cameras or other services")
+                        results = port_results
                     else:
                         print("\nNo accessible channels found")
                         results = port_results

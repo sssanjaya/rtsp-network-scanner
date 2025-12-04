@@ -63,86 +63,91 @@ class ProgressBar:
 class ChannelScanner:
     """Scan for available RTSP channels on cameras"""
 
-    # Common RTSP path patterns for various camera manufacturers
+    # Common RTSP path patterns for various camera manufacturers (optimized - 45 paths)
     COMMON_PATHS = [
-        # Generic patterns
+        # Generic patterns (most common first)
         "/",
         "/stream",
+        "/stream1",
+        "/stream2",
         "/live",
-        "/media",
+        "/live.sdp",
         "/video",
+        "/media",
         "/h264",
-        "/mpeg4",
-        "/mjpeg",
 
-        # Hikvision
+        # Hikvision (very common)
         "/Streaming/Channels/101",
         "/Streaming/Channels/102",
         "/Streaming/Channels/201",
-        "/Streaming/Channels/301",
-        "/Streaming/Channels/401",
-        "/Streaming/Channels/501",
-        "/Streaming/Channels/601",
-        "/Streaming/Channels/701",
-        "/Streaming/Channels/801",
+        "/Streaming/Channels/202",
         "/h264/ch1/main/av_stream",
         "/h264/ch1/sub/av_stream",
 
-        # Dahua
+        # Dahua / Amcrest (very common)
         "/cam/realmonitor?channel=1&subtype=0",
         "/cam/realmonitor?channel=1&subtype=1",
         "/cam/realmonitor?channel=2&subtype=0",
-        "/cam/realmonitor?channel=3&subtype=0",
-        "/cam/realmonitor?channel=4&subtype=0",
+
+        # Generic numbered channels
+        "/ch01",
+        "/ch02",
+        "/channel1",
+        "/channel2",
+        "/video1",
+        "/video2",
 
         # Axis
         "/axis-media/media.amp",
-        "/axis-media/media.amp?videocodec=h264",
-        "/axis-media/media.amp?resolution=1920x1080",
         "/mjpg/video.mjpg",
 
         # Foscam
         "/videoMain",
         "/videoSub",
-        "/video.h264",
         "/11",
         "/12",
 
-        # Amcrest
-        "/cam/realmonitor?channel=1&subtype=0",
-        "/cam/realmonitor?channel=1&subtype=1",
-
-        # TP-Link
-        "/stream1",
-        "/stream2",
-        "/h264_stream",
-
-        # Generic numbered channels
-        "/ch01",
-        "/ch02",
-        "/ch03",
-        "/ch04",
-        "/channel1",
-        "/channel2",
-        "/channel3",
-        "/channel4",
-        "/video1",
-        "/video2",
-        "/cam1",
-        "/cam2",
-
         # Other common patterns
         "/live/ch00_0",
-        "/live/ch00_1",
         "/live/ch01_0",
-        "/live.sdp",
         "/av0_0",
-        "/av0_1",
         "/onvif1",
-        "/onvif2",
         "/profile1",
         "/profile2",
-        "/profile3",
+
+        # Additional patterns
+        "/MediaInput/h264",
+        "/play1.sdp",
+        "/1/stream1",
+        "/0/video0",
+        "/streaming/channels/1",
+    ]
+
+    # HTTP camera paths (for port 8080 and similar)
+    HTTP_CAMERA_PATHS = [
+        # XMEye / generic Chinese DVR/NVR
+        "/h264_stream",
+        "/mjpegstream.cgi",
+        "/cgi-bin/snapshot.cgi",
+        "/video.mjpg",
+        "/videostream.cgi",
+        "/live/0/h264.sdp",
+        "/live/1/h264.sdp",
+        "/ipcam/stream.cgi",
+        "/live_mpeg4.sdp",
+        "/nphMoticonJpeg?Resolution=640x480&Quality=Clarity",
+        "/GetData.cgi",
+        "/image/jpeg.cgi",
+        "/video.cgi",
+
+        # Wanscam / generic IP cameras
+        "/videostream.asf?usr=admin&pwd=",
+        "/video.mjpg",
+        "/mjpg/video.mjpg",
+
+        # Generic ONVIF
+        "/onvif/device_service",
+        "/onvif/media",
     ]
 
     # Common credential combinations
@@ -159,6 +164,9 @@ class ChannelScanner:
         ('', ''),
     ]
 
+    # Invalid path used to detect permissive servers
+    INVALID_TEST_PATH = "/thispathshouldnotexist99999"
+
     def __init__(self, timeout: float = 5.0, max_workers: int = 20, logger=None):
         """
         Initialize channel scanner
@@ -172,6 +180,46 @@ class ChannelScanner:
         self.max_workers = max_workers
         self.logger = logger
         self.tester = RTSPTester(timeout=timeout, logger=logger)
+
+    def _is_permissive_server(self, host: str, port: int, username: str = None, password: str = None) -> bool:
+        """
+        Check if server accepts any path (permissive server detection).
+        A permissive server returns 200/401 for invalid paths.
+
+        Args:
+            host: Target host
+            port: Target port
+            username: Optional username
+            password: Optional password
+
+        Returns:
+            True if server is permissive, False if strict
+        """
+        url = self.tester.generate_rtsp_url(host, port, self.INVALID_TEST_PATH, username, password)
+        result = self.tester.test_rtsp_connection(url)
+
+        # If invalid path gets 200 or 401, server is permissive
+        if result.get('status_code') in [200, 401]:
+            self._log(f"Permissive server detected at {host}:{port} (accepts invalid paths)", "debug")
+            return True
+
+        # If we get 404 or other error, server is strict
+        self._log(f"Strict server at {host}:{port} (rejects invalid paths)", "debug")
+        return False
+
+    def check_rtsp_protocol(self, host: str, port: int) -> bool:
+        """
+        Check if a host:port is speaking RTSP protocol
+
+        Args:
+            host: Target host IP or hostname
+            port: Target port
+
+        Returns:
+            True if RTSP protocol is detected, False otherwise
+        """
+        result = self.tester.check_rtsp_protocol(host, port)
+        return result.get('is_rtsp', False)
 
     def _log(self, message: str, level: str = "info"):
         """Helper to log messages"""
@@ -242,7 +290,10 @@ class ChannelScanner:
         paths_to_test = custom_paths if custom_paths else self.COMMON_PATHS
         total = len(paths_to_test)
 
-        self._log(f"Scanning {total} channel paths on {host}:{port}", "debug")
+        # First, detect if server is permissive (accepts any path)
+        is_permissive = self._is_permissive_server(host, port, username, password)
+
+        self._log(f"Scanning {total} channel paths on {host}:{port} (permissive={is_permissive})", "debug")
 
         available_channels = []
 
@@ -254,7 +305,7 @@ class ChannelScanner:
 
             for path in paths_to_test:
                 url = self.tester.generate_rtsp_url(host, port, path, username, password)
-                futures.append(executor.submit(self._test_channel, url, path))
+                futures.append(executor.submit(self._test_channel, url, path, is_permissive))
 
             for future in concurrent.futures.as_completed(futures):
                 result = future.result()
@@ -272,34 +323,48 @@ class ChannelScanner:
         self._log(f"Found {len(available_channels)} available channel(s) on {host}:{port}")
         return available_channels
 
-    def _test_channel(self, url: str, path: str) -> Dict:
+    def _test_channel(self, url: str, path: str, is_permissive: bool = False) -> Dict:
         """
         Test a single channel path
 
         Args:
             url: Complete RTSP URL to test
             path: Path being tested
+            is_permissive: Whether the server accepts any path
 
         Returns:
             Channel info dict if available, None otherwise
         """
         result = self.tester.test_rtsp_connection(url)
+        status_code = result.get('status_code')
 
-        if result['reachable'] and result.get('status_code') in [200, 401]:
+        # For permissive servers: only accept 200 with valid SDP
+        # For strict servers: accept 200 with SDP or 401 (auth required)
+        is_valid = False
+
+        if status_code == 200 and result.get('has_valid_sdp'):
+            # Valid stream with SDP content
+            is_valid = True
+        elif status_code == 401 and not is_permissive:
+            # Auth required - valid only for strict servers
+            # (permissive servers return 401 for everything)
+            is_valid = True
+
+        if is_valid:
             stream_type = self._detect_stream_type(path)
             channel_info = {
                 'url': url,
                 'path': path,
-                'status_code': result['status_code'],
+                'status_code': status_code,
                 'response_time': result['response_time'],
                 'stream_type': stream_type,
                 'codec': result.get('codec'),
                 'resolution': result.get('resolution'),
                 'server_info': result.get('server_info'),
-                'requires_auth': result['status_code'] == 401
+                'requires_auth': status_code == 401
             }
 
-            self._log(f"Found channel: {path} (Status: {result['status_code']})", "debug")
+            self._log(f"Found channel: {path} (Status: {status_code})", "debug")
             return channel_info
 
         return None

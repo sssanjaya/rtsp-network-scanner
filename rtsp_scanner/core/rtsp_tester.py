@@ -30,6 +30,118 @@ class RTSPTester:
             ('', ''),
         ]
 
+    # Known camera manufacturers by server header patterns
+    CAMERA_MANUFACTURERS = {
+        'hikvision': ['hikvision', 'hik', 'dvr', 'nvr', 'ipc'],
+        'dahua': ['dahua', 'dh-', 'ipc-'],
+        'axis': ['axis', 'vapix'],
+        'foscam': ['foscam', 'ipcam'],
+        'amcrest': ['amcrest'],
+        'reolink': ['reolink'],
+        'uniview': ['uniview', 'unv'],
+        'hanwha': ['hanwha', 'samsung', 'wisenet'],
+        'vivotek': ['vivotek'],
+        'geovision': ['geovision', 'gv-'],
+        'bosch': ['bosch'],
+        'honeywell': ['honeywell'],
+        'pelco': ['pelco'],
+        'panasonic': ['panasonic'],
+        'sony': ['sony'],
+        'ubiquiti': ['ubiquiti', 'ubnt', 'unifi'],
+        'tp-link': ['tp-link', 'tapo'],
+        'wyze': ['wyze'],
+        'eufy': ['eufy', 'anker'],
+    }
+
+    def _detect_manufacturer(self, server_info: str) -> str:
+        """Detect camera manufacturer from server header"""
+        if not server_info:
+            return None
+        server_lower = server_info.lower()
+        for manufacturer, patterns in self.CAMERA_MANUFACTURERS.items():
+            for pattern in patterns:
+                if pattern in server_lower:
+                    return manufacturer.title()
+        return None
+
+    def check_rtsp_protocol(self, host: str, port: int) -> Dict:
+        """
+        Check if a host:port is speaking RTSP protocol by sending OPTIONS request
+
+        Args:
+            host: Target host IP or hostname
+            port: Target port
+
+        Returns:
+            Dictionary with protocol check results including:
+            - is_rtsp: Boolean if RTSP protocol is detected
+            - server_info: Server header if available
+            - manufacturer: Detected camera manufacturer
+            - supported_methods: RTSP methods supported
+            - error: Error message if any
+        """
+        result = {
+            'host': host,
+            'port': port,
+            'is_rtsp': False,
+            'server_info': None,
+            'manufacturer': None,
+            'supported_methods': None,
+            'error': None
+        }
+
+        sock = None
+        try:
+            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            sock.settimeout(self.timeout)
+            sock.connect((host, port))
+
+            # Send RTSP OPTIONS request (simplest RTSP request)
+            request = (
+                f"OPTIONS rtsp://{host}:{port}/ RTSP/1.0\r\n"
+                f"CSeq: 1\r\n"
+                f"User-Agent: RTSP-Scanner/2.4\r\n"
+                f"\r\n"
+            )
+            sock.sendall(request.encode())
+
+            response = sock.recv(2048).decode('utf-8', errors='ignore')
+
+            # Check if response looks like RTSP
+            if response.startswith('RTSP/'):
+                result['is_rtsp'] = True
+
+                # Parse response headers
+                for line in response.split('\r\n'):
+                    line_lower = line.lower()
+                    if line_lower.startswith('server:'):
+                        result['server_info'] = line.split(':', 1)[1].strip()
+                        result['manufacturer'] = self._detect_manufacturer(result['server_info'])
+                    elif line_lower.startswith('public:'):
+                        # Extract supported methods
+                        methods = line.split(':', 1)[1].strip()
+                        result['supported_methods'] = [m.strip() for m in methods.split(',')]
+
+                self._log(f"RTSP protocol detected on {host}:{port}", "debug")
+            else:
+                result['error'] = "Not RTSP protocol"
+                self._log(f"Non-RTSP response from {host}:{port}", "debug")
+
+        except socket.timeout:
+            result['error'] = "Connection timeout"
+        except socket.error as e:
+            result['error'] = f"Socket error: {str(e)}"
+        except Exception as e:
+            result['error'] = f"Error: {str(e)}"
+        finally:
+            if sock:
+                try:
+                    sock.close()
+                except Exception:
+                    pass
+
+        return result
+
     def _log(self, message: str, level: str = "info"):
         """Helper to log messages"""
         if self.logger:
@@ -205,6 +317,7 @@ class RTSPTester:
         port = parsed['port']
 
         start_time = time.time()
+        sock = None
 
         try:
             # Create socket connection
@@ -218,7 +331,7 @@ class RTSPTester:
             request = (
                 f"DESCRIBE {url} RTSP/1.0\r\n"
                 f"CSeq: 1\r\n"
-                f"User-Agent: RTSP-Scanner/1.0\r\n"
+                f"User-Agent: RTSP-Scanner/2.4\r\n"
                 f"Accept: application/sdp\r\n"
                 f"\r\n"
             )
@@ -243,39 +356,67 @@ class RTSPTester:
                 if match:
                     status_code = int(match.group(1))
                     result['status_code'] = status_code
-                    result['reachable'] = True
                     result['response_time'] = response_time
 
-                    # Extract server info and SDP data
+                    # Extract server info, content-length and SDP data
                     sdp_data = []
                     in_sdp = False
+                    content_length = 0
+                    has_sdp_content_type = False
                     for line in lines:
                         if line.lower().startswith('server:'):
                             result['server_info'] = line.split(':', 1)[1].strip()
+                            # Detect manufacturer from server header
+                            result['manufacturer'] = self._detect_manufacturer(result['server_info'])
+                        if line.lower().startswith('content-length:'):
+                            try:
+                                content_length = int(line.split(':', 1)[1].strip())
+                            except ValueError:
+                                pass
                         if line.lower().startswith('content-type:') and 'sdp' in line.lower():
+                            has_sdp_content_type = True
                             in_sdp = True
                         elif in_sdp and line.strip():
                             sdp_data.append(line)
 
-                    # Parse SDP for codec and resolution
-                    if sdp_data and status_code == 200:
-                        codec_info = self._parse_sdp(sdp_data)
-                        result.update(codec_info)
-
+                    # For 200 OK, validate that we have actual SDP content
                     if status_code == 200:
-                        self._log(f"RTSP connection successful: {url}", "debug")
+                        # Check for valid SDP: must have content-type: application/sdp
+                        # and actual SDP data (v=, m=, etc.)
+                        has_valid_sdp = False
+                        if has_sdp_content_type and sdp_data:
+                            # Look for essential SDP fields
+                            sdp_text = '\n'.join(sdp_data)
+                            if 'v=' in sdp_text or 'm=' in sdp_text or 'a=rtpmap' in sdp_text:
+                                has_valid_sdp = True
+                                codec_info = self._parse_sdp(sdp_data)
+                                result.update(codec_info)
+
+                        if has_valid_sdp:
+                            result['reachable'] = True
+                            result['has_valid_sdp'] = True
+                            self._log(f"RTSP stream found: {url}", "debug")
+                        else:
+                            # 200 but no valid SDP - server accepts anything
+                            result['reachable'] = False
+                            result['has_valid_sdp'] = False
+                            result['error'] = "No valid SDP content"
+                            self._log(f"RTSP 200 but no valid SDP: {url}", "debug")
+
                     elif status_code == 401:
+                        # 401 means path exists but needs auth
+                        result['reachable'] = True
                         self._log(f"RTSP requires authentication: {url}", "debug")
                         result['error'] = "Authentication required"
                     elif status_code == 404:
+                        result['reachable'] = False
                         self._log(f"RTSP path not found: {url}", "debug")
                         result['error'] = "Path not found"
                     else:
+                        result['reachable'] = False
                         result['error'] = f"Status code: {status_code}"
                 else:
                     result['error'] = "Invalid RTSP response"
-
-            sock.close()
 
         except socket.timeout:
             result['error'] = "Connection timeout"
@@ -289,6 +430,12 @@ class RTSPTester:
             result['error'] = f"Unexpected error: {str(e)}"
             result['response_time'] = time.time() - start_time
             self._log(f"Error testing {url}: {str(e)}", "debug")
+        finally:
+            if sock:
+                try:
+                    sock.close()
+                except Exception:
+                    pass
 
         return result
 
@@ -455,6 +602,7 @@ class RTSPTester:
         host = parsed['hostname']
         port = parsed['port']
 
+        sock = None
         try:
             sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             sock.settimeout(self.timeout)
@@ -515,14 +663,18 @@ class RTSPTester:
                 result['error'] = "SETUP request failed"
                 self._log(f"✗ SETUP request failed", "debug")
 
-            sock.close()
-
         except socket.timeout:
             result['error'] = "Connection timeout during playback test"
         except socket.error as e:
             result['error'] = f"Socket error: {str(e)}"
         except Exception as e:
             result['error'] = f"Unexpected error: {str(e)}"
+        finally:
+            if sock:
+                try:
+                    sock.close()
+                except Exception:
+                    pass
 
         return result
 
