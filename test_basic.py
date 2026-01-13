@@ -235,7 +235,7 @@ def test_package_version():
         import rtsp_scanner
 
         assert hasattr(rtsp_scanner, '__version__'), "No version attribute"
-        assert rtsp_scanner.__version__ == '2.5.1', f"Version mismatch: expected 2.5.1, got {rtsp_scanner.__version__}"
+        assert rtsp_scanner.__version__ == '2.5.2', f"Version mismatch: expected 2.5.2, got {rtsp_scanner.__version__}"
 
         print("  ✓ Package metadata correct")
         return True

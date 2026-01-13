@@ -75,6 +75,17 @@ class OutputFormatter:
                         value = '✗'
                     else:
                         value = '-'
+                # Format channel status with symbols
+                elif header == 'status':
+                    status_map = {
+                        'ok': '✓ OK',
+                        'auth_error': '✗ Auth',
+                        'forbidden': '⊘ Forbidden',
+                        'not_found': '- N/A',
+                        'timeout': '? Timeout',
+                        'error': '! Error',
+                    }
+                    value = status_map.get(value, value or '-')
                 formatted[header] = value
             formatted_results.append(formatted)
 

@@ -202,24 +202,32 @@ Examples:
 
                     # Display channel results
                     if all_channels:
-                        # Show credential validation status if credentials were provided
+                        # Summarize channel statuses
+                        ok_channels = [c for c in all_channels if c.get('status') == 'ok']
+                        auth_error_channels = [c for c in all_channels if c.get('status') == 'auth_error']
+
+                        # Show credential validation status
                         if args.username and args.password:
-                            valid_channels = [c for c in all_channels if c.get('status_code') == 200]
-                            if valid_channels:
-                                first_valid = valid_channels[0]
-                                print(f"\n✓ Credentials VALID")
+                            if ok_channels:
+                                first_valid = ok_channels[0]
+                                print(f"\n✓ Credentials VALID ({len(ok_channels)} channel(s) accessible)")
                                 if not args.simple:
                                     if first_valid.get('codec'):
                                         print(f"  Codec: {first_valid['codec']}")
                                     if first_valid.get('resolution'):
                                         print(f"  Resolution: {first_valid['resolution']}")
                                 print()
-                            else:
-                                # Check if all channels require auth (invalid credentials)
-                                auth_required = [c for c in all_channels if c.get('status_code') == 401]
-                                if auth_required:
-                                    print(f"\n✗ Credentials INVALID")
-                                    print()
+                            elif auth_error_channels:
+                                print(f"\n✗ Credentials INVALID ({len(auth_error_channels)} channel(s) require auth)")
+                                print()
+                        else:
+                            # No credentials provided - show what was found
+                            if ok_channels:
+                                print(f"\n✓ {len(ok_channels)} channel(s) accessible without auth")
+                            if auth_error_channels:
+                                print(f"✗ {len(auth_error_channels)} channel(s) require authentication")
+                            if ok_channels or auth_error_channels:
+                                print()
 
                         # Step 3: Check camera health with ffmpeg if requested
                         if camera_checker and all_channels:
@@ -282,16 +290,16 @@ Examples:
                             columns = ['host', 'port']
                             if any(c.get('manufacturer') for c in all_channels):
                                 columns.append('manufacturer')
+                            columns.append('path')
+                            columns.append('status')
                             if args.check:
                                 columns.append('working')
-                            else:
-                                columns.append('path')
                         elif args.detailed:
                             # Detailed output: all available info
                             columns = ['host', 'port']
                             if any(c.get('manufacturer') for c in all_channels):
                                 columns.append('manufacturer')
-                            columns.extend(['path', 'stream_type'])
+                            columns.extend(['path', 'stream_type', 'status'])
                             if any(c.get('codec') for c in all_channels):
                                 columns.extend(['codec', 'resolution'])
                             if args.check:
@@ -308,14 +316,14 @@ Examples:
 
                             if has_codec:
                                 if has_manufacturer:
-                                    columns = ['host', 'port', 'manufacturer', 'path', 'stream_type', 'codec', 'resolution']
+                                    columns = ['host', 'port', 'manufacturer', 'path', 'stream_type', 'status', 'codec', 'resolution']
                                 else:
-                                    columns = ['host', 'port', 'path', 'stream_type', 'codec', 'resolution']
+                                    columns = ['host', 'port', 'path', 'stream_type', 'status', 'codec', 'resolution']
                             else:
                                 if has_manufacturer:
-                                    columns = ['host', 'port', 'manufacturer', 'path', 'stream_type']
+                                    columns = ['host', 'port', 'manufacturer', 'path', 'stream_type', 'status']
                                 else:
-                                    columns = ['host', 'port', 'path', 'stream_type']
+                                    columns = ['host', 'port', 'path', 'stream_type', 'status']
 
                             if args.check:
                                 columns.append('working')
