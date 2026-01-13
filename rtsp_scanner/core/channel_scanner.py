@@ -361,18 +361,47 @@ class ChannelScanner:
         """
         result = self.tester.test_rtsp_connection(url)
         status_code = result.get('status_code')
+        error = result.get('error')
 
-        # For permissive servers: only accept 200 with valid SDP
-        # For strict servers: accept 200 with SDP or 401 (auth required)
+        # Determine channel status
+        # - 'ok': Channel exists and is accessible (200 with valid SDP)
+        # - 'auth_error': Channel exists but credentials are wrong (401)
+        # - 'not_found': Channel doesn't exist (404)
+        # - 'error': Other error (timeout, connection refused, etc.)
+
+        channel_status = None
         is_valid = False
 
-        if status_code == 200 and result.get('has_valid_sdp'):
-            # Valid stream with SDP content
+        if status_code == 200:
+            if result.get('has_valid_sdp'):
+                # Valid stream with SDP content
+                is_valid = True
+                channel_status = 'ok'
+            elif not is_permissive:
+                # 200 but no SDP - might still be a valid channel on some cameras
+                is_valid = True
+                channel_status = 'ok'
+        elif status_code == 401:
+            if not is_permissive:
+                # Auth required - channel exists but wrong/no credentials
+                is_valid = True
+                channel_status = 'auth_error'
+        elif status_code == 404:
+            # Channel doesn't exist - don't include
+            channel_status = 'not_found'
+            is_valid = False
+        elif status_code == 403:
+            # Forbidden - channel exists but access denied
             is_valid = True
-        elif status_code == 401 and not is_permissive:
-            # Auth required - valid only for strict servers
-            # (permissive servers return 401 for everything)
-            is_valid = True
+            channel_status = 'forbidden'
+        elif error:
+            # Connection error (timeout, refused, etc.)
+            # Only include if it looks like a real channel path
+            if 'timeout' in str(error).lower():
+                channel_status = 'timeout'
+            else:
+                channel_status = 'error'
+            is_valid = False
 
         if is_valid:
             stream_type = self._detect_stream_type(path)
@@ -380,15 +409,17 @@ class ChannelScanner:
                 'url': url,
                 'path': path,
                 'status_code': status_code,
-                'response_time': result['response_time'],
+                'status': channel_status,
+                'response_time': result.get('response_time'),
                 'stream_type': stream_type,
                 'codec': result.get('codec'),
                 'resolution': result.get('resolution'),
                 'server_info': result.get('server_info'),
-                'requires_auth': status_code == 401
+                'requires_auth': status_code == 401,
+                'error': error
             }
 
-            self._log(f"Found channel: {path} (Status: {status_code})", "debug")
+            self._log(f"Found channel: {path} (Status: {status_code}, {channel_status})", "debug")
             return channel_info
 
         return None
