@@ -1,6 +1,7 @@
 """Channel scanner for RTSP cameras"""
 
 import concurrent.futures
+import re
 import sys
 import threading
 from typing import List, Dict
@@ -63,7 +64,7 @@ class ProgressBar:
 class ChannelScanner:
     """Scan for available RTSP channels on cameras"""
 
-    # Common RTSP path patterns for various camera manufacturers (optimized - 45 paths)
+    # Common RTSP path patterns for various camera manufacturers
     COMMON_PATHS = [
         # Generic patterns (most common first)
         "/",
@@ -76,22 +77,41 @@ class ChannelScanner:
         "/media",
         "/h264",
 
-        # Hikvision (very common)
+        # Hikvision - All 8 channels with main (x01) and sub (x02) streams
         "/Streaming/Channels/101",
         "/Streaming/Channels/102",
         "/Streaming/Channels/201",
         "/Streaming/Channels/202",
+        "/Streaming/Channels/301",
+        "/Streaming/Channels/302",
+        "/Streaming/Channels/401",
+        "/Streaming/Channels/402",
+        "/Streaming/Channels/501",
+        "/Streaming/Channels/502",
+        "/Streaming/Channels/601",
+        "/Streaming/Channels/602",
+        "/Streaming/Channels/701",
+        "/Streaming/Channels/702",
+        "/Streaming/Channels/801",
+        "/Streaming/Channels/802",
         "/h264/ch1/main/av_stream",
         "/h264/ch1/sub/av_stream",
+        "/h264/ch2/main/av_stream",
+        "/h264/ch2/sub/av_stream",
 
-        # Dahua / Amcrest (very common)
+        # Dahua / Amcrest - Multiple channels
         "/cam/realmonitor?channel=1&subtype=0",
         "/cam/realmonitor?channel=1&subtype=1",
         "/cam/realmonitor?channel=2&subtype=0",
+        "/cam/realmonitor?channel=2&subtype=1",
+        "/cam/realmonitor?channel=3&subtype=0",
+        "/cam/realmonitor?channel=4&subtype=0",
 
         # Generic numbered channels
         "/ch01",
         "/ch02",
+        "/ch03",
+        "/ch04",
         "/channel1",
         "/channel2",
         "/video1",
@@ -238,11 +258,18 @@ class ChannelScanner:
         """
         path_lower = path.lower()
 
+        # Hikvision pattern: x01 = main, x02 = sub (e.g., 101, 201, 301... are main; 102, 202, 302... are sub)
+        hikvision_match = re.search(r'/streaming/channels/(\d)0(\d)', path_lower)
+        if hikvision_match:
+            stream_num = hikvision_match.group(2)
+            if stream_num == '1':
+                return 'Main'
+            elif stream_num == '2':
+                return 'Sub'
+
         # Sub stream indicators - check these FIRST (more specific)
         sub_indicators = [
-            '/sub/', 'subtype=1', '/streaming/channels/102', '/streaming/channels/202',
-            '/streaming/channels/302', '/streaming/channels/402', '/streaming/channels/502',
-            '/streaming/channels/602', '/streaming/channels/702', '/streaming/channels/802',
+            '/sub/', 'subtype=1',
             'videosub', '/stream2', '/ch02', '/channel2', '/video2', '/cam2',
             'resolution=640x480', 'resolution=320x240'
         ]
@@ -250,9 +277,6 @@ class ChannelScanner:
         # Main stream indicators
         main_indicators = [
             '/main/', 'channel=1&subtype=0', 'subtype=0',
-            '/streaming/channels/101', '/streaming/channels/201', '/streaming/channels/301',
-            '/streaming/channels/401', '/streaming/channels/501', '/streaming/channels/601',
-            '/streaming/channels/701', '/streaming/channels/801',
             'videomain', '/stream1', '/ch01', '/channel1', '/video1', '/cam1',
             'resolution=1920x1080', 'resolution=1280x720'
         ]
