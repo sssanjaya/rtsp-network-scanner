@@ -8,6 +8,7 @@ from pathlib import Path
 from rtsp_scanner.core.port_scanner import PortScanner
 from rtsp_scanner.core.rtsp_tester import RTSPTester
 from rtsp_scanner.core.channel_scanner import ChannelScanner
+from rtsp_scanner.core.camera_checker import CameraChecker
 from rtsp_scanner.utils.logger import setup_logger
 from rtsp_scanner.utils.output import OutputFormatter
 from rtsp_scanner.utils.network import get_local_network, get_local_ip
@@ -28,6 +29,18 @@ Examples:
 
   # Scan single host
   rtsp-network-scanner scan 192.168.1.100
+
+  # Scan with credentials and verify they work
+  rtsp-network-scanner scan 192.168.1.100 -u admin -p password
+
+  # Check if cameras are actually working (uses ffmpeg)
+  rtsp-network-scanner scan 192.168.1.0/24 --check
+
+  # Simple output (less details)
+  rtsp-network-scanner scan --simple
+
+  # Detailed output (all info including ffmpeg check)
+  rtsp-network-scanner scan --check --detailed
         """
     )
 
@@ -43,9 +56,12 @@ Examples:
     scan = subparsers.add_parser('scan', help='Scan for RTSP cameras (ports + channels)')
     scan.add_argument('target', nargs='?', help='Network (CIDR), IP range, or single host (auto-detected if omitted)')
     scan.add_argument('--ports', nargs='+', type=int, help='Ports to scan')
-    scan.add_argument('--username', '-u', help='Username for channel scan')
-    scan.add_argument('--password', '-p', help='Password for channel scan')
+    scan.add_argument('--username', '-u', help='Username for authentication')
+    scan.add_argument('--password', '-p', help='Password for authentication')
     scan.add_argument('--skip-channels', action='store_true', help='Skip channel discovery')
+    scan.add_argument('--check', action='store_true', help='Check if cameras are working (requires ffmpeg)')
+    scan.add_argument('--simple', action='store_true', help='Simple output (host, port, status)')
+    scan.add_argument('--detailed', action='store_true', help='Detailed output (all available info)')
 
     args = parser.parse_args()
 
@@ -70,6 +86,15 @@ Examples:
                 local_ip = get_local_ip()
                 print(f"Auto-detected network: {target} (Your IP: {local_ip})")
 
+            # Check ffmpeg availability if --check is used
+            camera_checker = None
+            if args.check:
+                camera_checker = CameraChecker(timeout=args.timeout * 3, logger=logger)
+                if not camera_checker.is_ffmpeg_available():
+                    print("Warning: ffmpeg/ffprobe not found. Install ffmpeg for --check feature.")
+                    print("Continuing without camera health check...\n")
+                    camera_checker = None
+
             # Step 1: Scan for open RTSP ports
             print(f"Scanning {target}...\n")
             port_scanner = PortScanner(timeout=args.timeout, max_workers=args.workers, logger=logger)
@@ -92,7 +117,8 @@ Examples:
                 open_results = [r for r in port_results if r.get('status') == 'open']
                 if open_results:
                     print(formatter.format_summary(open_results, "Ports"))
-                    print(formatter.format_table(open_results, ['host', 'port', 'response_time']))
+                    if not args.simple:
+                        print(formatter.format_table(open_results, ['host', 'port', 'response_time']))
 
             # Step 2: Scan for channels on hosts with open ports
             if not args.skip_channels and port_results:
@@ -182,10 +208,11 @@ Examples:
                             if valid_channels:
                                 first_valid = valid_channels[0]
                                 print(f"\n✓ Credentials VALID")
-                                if first_valid.get('codec'):
-                                    print(f"  Codec: {first_valid['codec']}")
-                                if first_valid.get('resolution'):
-                                    print(f"  Resolution: {first_valid['resolution']}")
+                                if not args.simple:
+                                    if first_valid.get('codec'):
+                                        print(f"  Codec: {first_valid['codec']}")
+                                    if first_valid.get('resolution'):
+                                        print(f"  Resolution: {first_valid['resolution']}")
                                 print()
                             else:
                                 # Check if all channels require auth (invalid credentials)
@@ -194,22 +221,107 @@ Examples:
                                     print(f"\n✗ Credentials INVALID")
                                     print()
 
+                        # Step 3: Check camera health with ffmpeg if requested
+                        if camera_checker and all_channels:
+                            print("Checking camera health with ffmpeg...")
+                            accessible_channels = [c for c in all_channels if c.get('status_code') == 200]
+
+                            if accessible_channels:
+                                checked_count = [0]
+                                total = len(accessible_channels)
+
+                                def progress_callback(checked, total):
+                                    checked_count[0] = checked
+                                    if not args.debug:
+                                        print(f"\r  Checked {checked}/{total} streams", end='', flush=True)
+
+                                check_results = camera_checker.batch_check(
+                                    accessible_channels,
+                                    args.username,
+                                    args.password,
+                                    max_workers=min(5, args.workers),
+                                    progress_callback=progress_callback
+                                )
+
+                                if not args.debug:
+                                    print()  # New line after progress
+
+                                # Update channels with check results
+                                check_map = {r.get('url') or f"rtsp://{r.get('host')}:{r.get('port')}{r.get('path')}": r
+                                             for r in check_results}
+
+                                working_count = 0
+                                for channel in all_channels:
+                                    url = channel.get('url') or f"rtsp://{channel.get('host')}:{channel.get('port')}{channel.get('path')}"
+                                    if url in check_map:
+                                        check = check_map[url]
+                                        channel['working'] = check.get('working', False)
+                                        channel['check_error'] = check.get('error')
+                                        if check.get('working'):
+                                            working_count += 1
+                                            # Update with ffmpeg-detected values (more accurate)
+                                            if check.get('codec'):
+                                                channel['codec'] = check['codec']
+                                            if check.get('resolution'):
+                                                channel['resolution'] = check['resolution']
+                                            if check.get('fps'):
+                                                channel['fps'] = check['fps']
+                                            if check.get('bitrate'):
+                                                channel['bitrate'] = check['bitrate']
+
+                                print(f"  {working_count}/{len(accessible_channels)} stream(s) working\n")
+                            else:
+                                print("  No accessible streams to check\n")
+
+                        # Display results based on output mode
                         print(formatter.format_summary(all_channels, 'Channels'))
 
-                        # Build columns based on available data
-                        has_codec = any(c.get('codec') for c in all_channels)
-                        has_manufacturer = any(c.get('manufacturer') for c in all_channels)
-
-                        if has_codec:
-                            if has_manufacturer:
-                                print(formatter.format_table(all_channels, ['host', 'port', 'manufacturer', 'path', 'stream_type', 'codec', 'resolution', 'response_time']))
+                        # Build columns based on output mode
+                        if args.simple:
+                            # Simple output: minimal info
+                            columns = ['host', 'port']
+                            if any(c.get('manufacturer') for c in all_channels):
+                                columns.append('manufacturer')
+                            if args.check:
+                                columns.append('working')
                             else:
-                                print(formatter.format_table(all_channels, ['host', 'port', 'path', 'stream_type', 'codec', 'resolution', 'response_time']))
+                                columns.append('path')
+                        elif args.detailed:
+                            # Detailed output: all available info
+                            columns = ['host', 'port']
+                            if any(c.get('manufacturer') for c in all_channels):
+                                columns.append('manufacturer')
+                            columns.extend(['path', 'stream_type'])
+                            if any(c.get('codec') for c in all_channels):
+                                columns.extend(['codec', 'resolution'])
+                            if args.check:
+                                columns.append('working')
+                                if any(c.get('fps') for c in all_channels):
+                                    columns.append('fps')
+                                if any(c.get('bitrate') for c in all_channels):
+                                    columns.append('bitrate')
+                            columns.append('response_time')
                         else:
-                            if has_manufacturer:
-                                print(formatter.format_table(all_channels, ['host', 'port', 'manufacturer', 'path', 'stream_type', 'response_time']))
+                            # Default output: balanced info
+                            has_codec = any(c.get('codec') for c in all_channels)
+                            has_manufacturer = any(c.get('manufacturer') for c in all_channels)
+
+                            if has_codec:
+                                if has_manufacturer:
+                                    columns = ['host', 'port', 'manufacturer', 'path', 'stream_type', 'codec', 'resolution']
+                                else:
+                                    columns = ['host', 'port', 'path', 'stream_type', 'codec', 'resolution']
                             else:
-                                print(formatter.format_table(all_channels, ['host', 'port', 'path', 'stream_type', 'response_time']))
+                                if has_manufacturer:
+                                    columns = ['host', 'port', 'manufacturer', 'path', 'stream_type']
+                                else:
+                                    columns = ['host', 'port', 'path', 'stream_type']
+
+                            if args.check:
+                                columns.append('working')
+                            columns.append('response_time')
+
+                        print(formatter.format_table(all_channels, columns))
                         results = all_channels
                     elif rtsp_hosts:
                         print("\nNo accessible channels found on RTSP hosts")
