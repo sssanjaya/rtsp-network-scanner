@@ -15,6 +15,7 @@ def test_imports():
         from rtsp_scanner.core.port_scanner import PortScanner
         from rtsp_scanner.core.rtsp_tester import RTSPTester
         from rtsp_scanner.core.channel_scanner import ChannelScanner
+        from rtsp_scanner.core.camera_checker import CameraChecker
         from rtsp_scanner.utils.logger import setup_logger
         from rtsp_scanner.utils.output import OutputFormatter
         print("  ✓ All modules import successfully")
@@ -234,12 +235,32 @@ def test_package_version():
         import rtsp_scanner
 
         assert hasattr(rtsp_scanner, '__version__'), "No version attribute"
-        assert rtsp_scanner.__version__ == '2.3.1', f"Version mismatch: expected 2.3.1, got {rtsp_scanner.__version__}"
+        assert rtsp_scanner.__version__ == '2.5.0', f"Version mismatch: expected 2.5.0, got {rtsp_scanner.__version__}"
 
         print("  ✓ Package metadata correct")
         return True
     except Exception as e:
         print(f"  ✗ Package metadata failed: {e}")
+        return False
+
+
+def test_camera_checker():
+    """Test CameraChecker initialization"""
+    print("\nTest 11: Testing CameraChecker...")
+    try:
+        from rtsp_scanner.core.camera_checker import CameraChecker
+
+        checker = CameraChecker(timeout=5.0)
+        assert checker.timeout == 5.0, "Timeout mismatch"
+
+        # Test ffmpeg availability check (should not crash)
+        available = checker.is_ffmpeg_available()
+        assert isinstance(available, bool), "is_ffmpeg_available should return bool"
+
+        print("  ✓ CameraChecker initialization works")
+        return True
+    except Exception as e:
+        print(f"  ✗ CameraChecker failed: {e}")
         return False
 
 
@@ -260,6 +281,7 @@ def main():
         test_url_generation,
         test_exports,
         test_package_version,
+        test_camera_checker,
     ]
 
     passed = 0

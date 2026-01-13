@@ -67,6 +67,14 @@ class OutputFormatter:
                 # Format response_time specially
                 if header == 'response_time':
                     value = OutputFormatter._format_response_time(value)
+                # Format working status as checkmark/cross
+                elif header == 'working':
+                    if value is True:
+                        value = '✓'
+                    elif value is False:
+                        value = '✗'
+                    else:
+                        value = '-'
                 formatted[header] = value
             formatted_results.append(formatted)
 
