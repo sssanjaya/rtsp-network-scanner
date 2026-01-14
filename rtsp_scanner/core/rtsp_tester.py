@@ -1,9 +1,10 @@
 """RTSP URL validator and tester"""
 
+import base64
 import socket
 import re
 from typing import Dict, Optional, Tuple
-from urllib.parse import urlparse
+from urllib.parse import urlparse, quote, unquote
 import time
 
 
@@ -272,13 +273,16 @@ class RTSPTester:
 
         try:
             parsed = urlparse(url)
+            # Decode URL-encoded username/password
+            username = unquote(parsed.username) if parsed.username else None
+            password = unquote(parsed.password) if parsed.password else None
             return {
                 'scheme': parsed.scheme,
                 'hostname': parsed.hostname,
                 'port': parsed.port or 554,
                 'path': parsed.path or '/',
-                'username': parsed.username,
-                'password': parsed.password,
+                'username': username,
+                'password': password,
                 'full_url': url
             }
         except Exception as e:
@@ -327,12 +331,21 @@ class RTSPTester:
             self._log(f"Connecting to {host}:{port}", "debug")
             sock.connect((host, port))
 
+            # Build RTSP DESCRIBE request with optional Basic Auth
+            auth_header = ""
+            if parsed.get('username') and parsed.get('password'):
+                # Add Basic Auth header
+                credentials = f"{parsed['username']}:{parsed['password']}"
+                encoded = base64.b64encode(credentials.encode()).decode()
+                auth_header = f"Authorization: Basic {encoded}\r\n"
+
             # Send RTSP DESCRIBE request
             request = (
                 f"DESCRIBE {url} RTSP/1.0\r\n"
                 f"CSeq: 1\r\n"
-                f"User-Agent: RTSP-Scanner/2.4\r\n"
+                f"User-Agent: RTSP-Scanner/2.5\r\n"
                 f"Accept: application/sdp\r\n"
+                f"{auth_header}"
                 f"\r\n"
             )
 
@@ -694,8 +707,12 @@ class RTSPTester:
             Complete RTSP URL
         """
         if username and password:
-            return f"rtsp://{username}:{password}@{host}:{port}{path}"
+            # URL-encode special characters in password (like $, @, etc.)
+            encoded_password = quote(password, safe='')
+            encoded_username = quote(username, safe='')
+            return f"rtsp://{encoded_username}:{encoded_password}@{host}:{port}{path}"
         elif username:
-            return f"rtsp://{username}@{host}:{port}{path}"
+            encoded_username = quote(username, safe='')
+            return f"rtsp://{encoded_username}@{host}:{port}{path}"
         else:
             return f"rtsp://{host}:{port}{path}"
