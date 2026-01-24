@@ -17,6 +17,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Report generation in HTML/PDF
 - Database storage support
 
+## [2.5.3] - 2026-01-24
+
+### Fixed
+- Added exception handling for RTSP protocol checks in thread pool to prevent scan crashes
+- Fixed URL construction when channel path is None (now defaults to '/')
+- Removed unused `checked_count` variable in camera health check
+
+### Removed
+- Removed `--simple` output mode flag (use default output instead)
+
+### Added
+- CLAUDE.md file for AI assistant context
+
 ## [2.3.1] - 2025-11-25
 
 ### Fixed

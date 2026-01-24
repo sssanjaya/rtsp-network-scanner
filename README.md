@@ -26,9 +26,6 @@ rtsp-network-scanner scan -u admin -p password
 # Check if cameras are actually working (requires ffmpeg)
 rtsp-network-scanner scan --check
 
-# Simple output (minimal info)
-rtsp-network-scanner scan --simple
-
 # Detailed output (all info)
 rtsp-network-scanner scan --detailed
 
@@ -69,7 +66,6 @@ Found 1 camera(s) with 8 channel(s)
 | `-u, --username` | Username for authentication |
 | `-p, --password` | Password for authentication |
 | `--check` | Verify cameras work using ffmpeg |
-| `--simple` | Minimal output (host, port, status) |
 | `--detailed` | Full output (codec, resolution, fps, bitrate) |
 | `--skip-channels` | Skip channel discovery (ports only) |
 | `--timeout SECONDS` | Connection timeout (default: 2.0s) |

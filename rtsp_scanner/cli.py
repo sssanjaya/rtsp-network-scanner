@@ -36,9 +36,6 @@ Examples:
   # Check if cameras are actually working (uses ffmpeg)
   rtsp-network-scanner scan 192.168.1.0/24 --check
 
-  # Simple output (less details)
-  rtsp-network-scanner scan --simple
-
   # Detailed output (all info including ffmpeg check)
   rtsp-network-scanner scan --check --detailed
         """
@@ -60,7 +57,6 @@ Examples:
     scan.add_argument('--password', '-p', help='Password for authentication')
     scan.add_argument('--skip-channels', action='store_true', help='Skip channel discovery')
     scan.add_argument('--check', action='store_true', help='Check if cameras are working (requires ffmpeg)')
-    scan.add_argument('--simple', action='store_true', help='Simple output (host, port, status)')
     scan.add_argument('--detailed', action='store_true', help='Detailed output (all available info)')
 
     args = parser.parse_args()
@@ -117,8 +113,7 @@ Examples:
                 open_results = [r for r in port_results if r.get('status') == 'open']
                 if open_results:
                     print(formatter.format_summary(open_results, "Ports"))
-                    if not args.simple:
-                        print(formatter.format_table(open_results, ['host', 'port', 'response_time']))
+                    print(formatter.format_table(open_results, ['host', 'port', 'response_time']))
 
             # Step 2: Scan for channels on hosts with open ports
             if not args.skip_channels and port_results:
@@ -156,15 +151,19 @@ Examples:
                         }
                         for future in concurrent.futures.as_completed(future_to_host):
                             host, port = future_to_host[future]
-                            protocol_check = future.result()
-                            if protocol_check.get('is_rtsp'):
-                                rtsp_hosts.append((
-                                    host,
-                                    port,
-                                    protocol_check.get('server_info'),
-                                    protocol_check.get('manufacturer')
-                                ))
-                            else:
+                            try:
+                                protocol_check = future.result()
+                                if protocol_check.get('is_rtsp'):
+                                    rtsp_hosts.append((
+                                        host,
+                                        port,
+                                        protocol_check.get('server_info'),
+                                        protocol_check.get('manufacturer')
+                                    ))
+                                else:
+                                    non_rtsp_hosts.append((host, port))
+                            except Exception as e:
+                                logger.debug(f"Error checking RTSP protocol on {host}:{port}: {e}")
                                 non_rtsp_hosts.append((host, port))
 
                     # Report results with manufacturer breakdown
@@ -211,11 +210,10 @@ Examples:
                             if ok_channels:
                                 first_valid = ok_channels[0]
                                 print(f"\n✓ Credentials VALID ({len(ok_channels)} channel(s) accessible)")
-                                if not args.simple:
-                                    if first_valid.get('codec'):
-                                        print(f"  Codec: {first_valid['codec']}")
-                                    if first_valid.get('resolution'):
-                                        print(f"  Resolution: {first_valid['resolution']}")
+                                if first_valid.get('codec'):
+                                    print(f"  Codec: {first_valid['codec']}")
+                                if first_valid.get('resolution'):
+                                    print(f"  Resolution: {first_valid['resolution']}")
                                 print()
                             elif auth_error_channels:
                                 print(f"\n✗ Credentials INVALID ({len(auth_error_channels)} channel(s) require auth)")
@@ -235,11 +233,7 @@ Examples:
                             accessible_channels = [c for c in all_channels if c.get('status_code') == 200]
 
                             if accessible_channels:
-                                checked_count = [0]
-                                total = len(accessible_channels)
-
                                 def progress_callback(checked, total):
-                                    checked_count[0] = checked
                                     if not args.debug:
                                         print(f"\r  Checked {checked}/{total} streams", end='', flush=True)
 
@@ -255,12 +249,17 @@ Examples:
                                     print()  # New line after progress
 
                                 # Update channels with check results
-                                check_map = {r.get('url') or f"rtsp://{r.get('host')}:{r.get('port')}{r.get('path')}": r
-                                             for r in check_results}
+                                def build_url(item):
+                                    if item.get('url'):
+                                        return item['url']
+                                    path = item.get('path') or '/'
+                                    return f"rtsp://{item.get('host')}:{item.get('port')}{path}"
+
+                                check_map = {build_url(r): r for r in check_results}
 
                                 working_count = 0
                                 for channel in all_channels:
-                                    url = channel.get('url') or f"rtsp://{channel.get('host')}:{channel.get('port')}{channel.get('path')}"
+                                    url = build_url(channel)
                                     if url in check_map:
                                         check = check_map[url]
                                         channel['working'] = check.get('working', False)
@@ -285,16 +284,7 @@ Examples:
                         print(formatter.format_summary(all_channels, 'Channels'))
 
                         # Build columns based on output mode
-                        if args.simple:
-                            # Simple output: minimal info
-                            columns = ['host', 'port']
-                            if any(c.get('manufacturer') for c in all_channels):
-                                columns.append('manufacturer')
-                            columns.append('path')
-                            columns.append('status')
-                            if args.check:
-                                columns.append('working')
-                        elif args.detailed:
+                        if args.detailed:
                             # Detailed output: all available info
                             columns = ['host', 'port']
                             if any(c.get('manufacturer') for c in all_channels):
