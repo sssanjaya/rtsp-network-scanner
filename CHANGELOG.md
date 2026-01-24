@@ -17,7 +17,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Report generation in HTML/PDF
 - Database storage support
 
-## [2.5.3] - 2026-01-24
+## [2.5.4] - 2026-01-24
 
 ### Fixed
 - Added exception handling for RTSP protocol checks in thread pool to prevent scan crashes
